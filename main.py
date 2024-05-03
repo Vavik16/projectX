@@ -1,9 +1,10 @@
 import sys
 import csv
-from PyQt5 import QtCore, QtWidgets, QtGui
-from PyQt5.QtWidgets import (QFileDialog, QComboBox, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
-from PyQt5.QtCore import QDate
+from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtWidgets import (QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
+from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
+import pandas as pd
 
 class SchemeSelectionDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
@@ -11,7 +12,7 @@ class SchemeSelectionDialog(QtWidgets.QDialog):
         self.setWindowTitle('Выбрать исполнительную схему')
         self.layout = QtWidgets.QVBoxLayout(self)
 
-        # Предполагаем, что в таблице три колонки
+        
         self.table = QtWidgets.QTableWidget(0, 3)
         self.layout.addWidget(self.table)
         self.table.setHorizontalHeaderLabels(['Наименование схемы', '№', 'Примечание'])
@@ -70,7 +71,7 @@ class AgreementSelectionDialog(QtWidgets.QDialog):
         self.setWindowTitle('Выбрать согласование')
         self.layout = QtWidgets.QVBoxLayout(self)
 
-        self.table = QtWidgets.QTableWidget(0, 1)  # Предполагается, что таблица содержит 3 колонки
+        self.table = QtWidgets.QTableWidget(0, 1)  
         self.layout.addWidget(self.table)
         self.table.setHorizontalHeaderLabels(['Наименование документа'])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -125,19 +126,19 @@ class MTRSelectionDialog(QtWidgets.QDialog):
         self.setWindowTitle('Выбрать МТР')
         self.layout = QtWidgets.QVBoxLayout(self)
 
-        # Setup the table to display MTR data with checkboxes
-        self.table = QtWidgets.QTableWidget(0, 3)  # Assuming 4 columns for demonstration
+        
+        self.table = QtWidgets.QTableWidget(0, 3)  
         self.layout.addWidget(self.table)
         self.table.setHorizontalHeaderLabels(['Объект контроля', 'Сертификаты, паспорта и иные документы', 'Акты входного контроля'])
-        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)  # Выбор по строкам
-        self.table.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)  # Разрешить выбор только одной строки за раз
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)  
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)  
 
-        # Стилизация выделенных строк
+        
         self.table.setStyleSheet("QTableWidget::item:selected { background-color: #add8e6; }")
 
         self.populate_table()
 
-        # Кнопки OK и Cancel
+        
         self.ok_button = QtWidgets.QPushButton('OK')
         self.ok_button.clicked.connect(self.accept_selection)
         self.cancel_button = QtWidgets.QPushButton('Отмена')
@@ -150,10 +151,10 @@ class MTRSelectionDialog(QtWidgets.QDialog):
     
 
     def populate_table(self):
-        mtr_data = self.parent().get_mtr_data()  # Получение данных из вкладки "Ведомость МТР"
+        mtr_data = self.parent().get_mtr_data()  
         self.table.setRowCount(len(mtr_data))
         for row_index, row_data in enumerate(mtr_data):
-            # Добавляем данные в каждую колонку таблицы
+            
             for col_index in range(0, self.table.columnCount()):
                 self.table.setItem(row_index, col_index, QtWidgets.QTableWidgetItem(row_data[col_index+1]))
 
@@ -173,7 +174,7 @@ class MTRSelectionDialog(QtWidgets.QDialog):
             selected_items.append(f"{name} - {qty} {unit}")
 
 
-        # Append the selection to the main journal table
+        
         selected_row = self.parent().table.currentRow()
         if selected_row == -1:
             QMessageBox.warning(self, 'Ошибка', 'Не выбрана строка в журнале.')
@@ -193,7 +194,7 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
         self.setWindowTitle('Выбрать объём работы')
         self.layout = QtWidgets.QVBoxLayout(self)
 
-        self.table = QtWidgets.QTableWidget(0, 3)  # Таблица для данных "Виды и объемы работ"
+        self.table = QtWidgets.QTableWidget(0, 3)  
         self.layout.addWidget(self.table)
         
         self.ok_button = QtWidgets.QPushButton('OK')
@@ -211,25 +212,25 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
         self.table.cellDoubleClicked.connect(self.cell_double_clicked)
 
     def cell_double_clicked(self, row, column):
-        # Prompt the user to input a number
+        
         num, ok = QtWidgets.QInputDialog.getInt(self, "Введите объем", "Объем работы:")
         if ok:
-            # Fetch existing data in the 7th column of the main table
+            
             selected_row = self.parent().table.currentRow()
             existing_data_item = self.parent().table.item(selected_row, 6)
 
-            # If there's already data in the cell, get it, otherwise, start with an empty string
+            
             existing_data = existing_data_item.text() if existing_data_item else ""
             
-            # Format the new data with the inputted number
+            
             work_type = self.table.item(row, 0).text()
             volume = self.table.item(row, 1).text()
             unit = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
             
-            # Create the new selection string
+            
             new_selection = f"{unit}_{work_type}_{num}_{volume}"
 
-            # Append the new data to the existing data, ensuring it doesn't just duplicate the existing content
+            
             if existing_data:
                 self.selected_data = f"{existing_data}; {new_selection}".strip()
             else:
@@ -247,10 +248,10 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
                     writer.writerow([work_type, volume, num, aosr_number])
             except Exception as e:
                 QMessageBox.warning(self, 'Ошибка', f'Не удалось сохранить данные: {e}')
-            self.accept()  # Close the dialog with confirmation of the selection
+            self.accept()  
         else:
             self.selected_data = None
-            self.reject()  # Close the dialog without making a selection
+            self.reject()  
 
     def set_data(self, data):
         self.table.clear()
@@ -300,7 +301,7 @@ class AOSRApp(QMainWindow):
         for name, icon_path in tab_names:
             tab = QWidget()
             self.tabs[name] = tab
-            self.tab_widget.addTab(tab, QIcon(icon_path), name)  # Установка иконки и пустого текста
+            self.tab_widget.addTab(tab, QIcon(icon_path), name)  
 
         self.setupJournalAOSRTab()
         self.setupOtherTabs()
@@ -312,28 +313,28 @@ class AOSRApp(QMainWindow):
         layout = QVBoxLayout()
         self.tabs['Журнал АОСР'].setLayout(layout)
         self.table = QTableWidget(0, 14)  
-        # Updating headers to include the new 'Наименование объекта' column and adjust others
+        
         self.table.setHorizontalHeaderLabels([
-            'Номер\nАОСР', 'Город\nстроительства', 'Наименование объекта', 'Дата начала\nработ', 'Дата окончания\nработ',
+            'Номер\nАОСР', 'Город\nстроительства', 'Наименование\n объекта', 'Дата начала\nработ', 'Дата окончания\nработ',
             'Дата подписания\nакта', '1. К освидетельствованию\nпредъявлены работы', 'Вид и объём работ\n(выгрузка ведомости)',
             'Работы выполнены\nпо проектно-сметной \nдок.', 'При\nвыполнении работ\nприменены', 'При\nвыполнении работ\nотклонения',
-            'Основание для\nпроизводства работ', 'Сформировать\nакт', 'Исполнительная\nсхема'
+            'Разрешается для\nпроизводства работ', 'Сформировать\nакт', 'Исполнительная\nсхема'
         ])
-        self.table.resizeRowsToContents()  # Resizes rows based on content automatically
+        self.table.resizeRowsToContents()  
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setStretchLastSection(True)
         self.initialize_default_values()
         for column in range(self.table.columnCount()):
             header_item = self.table.horizontalHeaderItem(column)
-            header_item.setToolTip(header_item.text().replace('\n', ' '))  # Set tooltip to be the header text without new lines
+            header_item.setToolTip(header_item.text().replace('\n', ' '))  
 
-        # Create a button panel
+        
         button_panel = QWidget()
         button_layout = QHBoxLayout()
         button_panel.setLayout(button_layout)
         
-        # Add buttons
+        
         btn_create_act = QPushButton('Создать акт')
         btn_create_act.clicked.connect(self.export_to_pdf_and_xls)
         btn_select_volume = QPushButton('Выбрать объём')
@@ -368,24 +369,24 @@ class AOSRApp(QMainWindow):
         tab_configs = {
             'Исп. схемы': ['Наименование схем', '№', ''],
             'Согласования': ['Наименование документа'],
+            'Информация' : [''],
             'Виды и объемы работ': ['', 'Ед.изм', 'Номер'],
             'Реестр ИД': ['№п/п', '№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
             'Ведомость МТР': ['п/п', 'Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
             'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание']
         }
-
         for name, headers in tab_configs.items():
             tab = self.tabs[name]
             layout = QVBoxLayout()
             table = QTableWidget(0, len(headers))
-            table.resizeRowsToContents()  # Resizes rows based on content automatically
+            table.resizeRowsToContents()  
             table.setHorizontalHeaderLabels(headers)
             table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             table.horizontalHeader().setStretchLastSection(True)
             self.initialize_default_values()
             for column in range(table.columnCount()):
                 header_item = table.horizontalHeaderItem(column)
-                header_item.setToolTip(header_item.text())  # Tooltips for headers
+                header_item.setToolTip(header_item.text())  
 
             tab.setLayout(layout)
             layout.addWidget(table)
@@ -407,8 +408,8 @@ class AOSRApp(QMainWindow):
             layout.addWidget(button_panel)
 
             self.other_tables[name] = table
-    
-    
+
+
     def add_other_record(self, table):
         row_count = table.rowCount()
         table.insertRow(row_count)
@@ -436,18 +437,18 @@ class AOSRApp(QMainWindow):
             self.set_default_value(row)
 
     def set_default_value(self, row_index):
-    # Устанавливаем значения по умолчанию для столбцов 8 и 9
+    
         item_8 = QTableWidgetItem('Не применялась')
         item_9 = QTableWidgetItem('Отсутствуют')
         combo_box_11 = QtWidgets.QComboBox()
-        combo_box_11.addItems(['Да', 'Нет'])  # Добавляем варианты выбора
+        combo_box_11.addItems(['Да', 'Нет'])  
         combo_box_11.setCurrentText('Да')
 
-        # Устанавливаем флаги, чтобы сделать ячейки нередактируемыми
+        
         item_8.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
         item_9.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
 
-        # Добавляем элементы в таблицу
+        
         self.table.setItem(row_index, 9, item_8)
         self.table.setItem(row_index, 10, item_9)
         self.table.setCellWidget(row_index, 12, combo_box_11)
@@ -468,7 +469,7 @@ class AOSRApp(QMainWindow):
                     self.table.insertRow(row_index)
                     self.set_default_value(row_index)
                     for col_index, value in enumerate(row_data):
-                        if col_index in [3, 4, 5]:  # Date columns
+                        if col_index in [3, 4, 5]:  
                             date = QDate.fromString(value, "yyyy-MM-dd") if value else QDate.currentDate()
                             date_editor = QDateEdit(self)
                             date_editor.setDate(date)
@@ -492,22 +493,25 @@ class AOSRApp(QMainWindow):
                         if col_index == 9 or col_index == 10:
                             item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
             for tab_name, table in self.other_tables.items():
-                if tab_name in ['Журнал АОСР', 'Информация']:  # Skip these tabs
+                if tab_name == 'Журнал АОСР':  
                     continue
-                with open(f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv', 'r', encoding='utf-8') as file:
-                    reader = csv.reader(file)
-                    for row_index, row_data in enumerate(reader):
-                        table.insertRow(row_index)
-                        for col_index, value in enumerate(row_data):
-                            item = NumericTableWidgetItem(value if value else '')
-                            table.setItem(row_index, col_index, item)
-                            item.setToolTip(value)
-                            table.resizeRowToContents(item.row())
+                elif tab_name == 'Информация':
+                    self.load_and_display_excel_data()
+                else:
+                    with open(f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv', 'r', encoding='utf-8') as file:
+                        reader = csv.reader(file)
+                        for row_index, row_data in enumerate(reader):
+                            table.insertRow(row_index)
+                            for col_index, value in enumerate(row_data):
+                                item = NumericTableWidgetItem(value if value else '')
+                                table.setItem(row_index, col_index, item)
+                                item.setToolTip(value)
+                                table.resizeRowToContents(item.row())
         except FileNotFoundError:
             QMessageBox.warning(self, 'Ошибка', 'Файл данных не найден.')
         finally:
             self.table.itemChanged.connect(self.item_changed)
-            self.table.sortItems(0, QtCore.Qt.AscendingOrder)  # Sort by AOSR number after loading
+            self.table.sortItems(0, QtCore.Qt.AscendingOrder)  
             self.validate_all_dates()
 
     def reload_ov(self):
@@ -528,6 +532,38 @@ class AOSRApp(QMainWindow):
             self.save_all_tables()
         return handle_date_changed
 
+    def load_and_display_excel_data(self):
+        csv_path = 'docs/информация.csv'
+        try:
+                
+            data_frame = pd.read_csv(csv_path, header=None)
+            data_frame = data_frame.fillna('')  
+            
+            table = self.other_tables['Информация']
+            table.setRowCount(len(data_frame.index))
+            table.setColumnCount(len(data_frame.columns))
+            table.horizontalHeader().setVisible(False)  
+
+            
+            editable_rows_first_column = {2, 5, 8, 12, 14}
+
+            
+            for index, row in data_frame.iterrows():
+                for col_index, value in enumerate(row):
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(Qt.ItemIsEnabled)  
+                    if col_index == len(row) - 1 or (col_index == 0 and (index + 1) in editable_rows_first_column):
+                        item.setFlags(Qt.ItemIsEditable | Qt.ItemIsEnabled)
+                        item.setBackground(QColor(255, 255, 255))  
+                    else:
+                        item.setBackground(QColor(240, 240, 240))  
+
+                    table.setItem(index, col_index, item)
+
+            table.resizeColumnsToContents()
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить данные из Excel файла: {str(e)}')
+    
     def date_item_changed(self, row, column, date):
         self.row_modified[row] = True
         self.validate_date(row, column)
@@ -541,31 +577,31 @@ class AOSRApp(QMainWindow):
         item.setToolTip(item.text()) 
 
     def get_mtr_data(self):
-    # Этот метод извлекает данные из таблицы "Ведомость МТР" и возвращает их в виде списка кортежей
+    
         mtr_table = self.other_tables['Ведомость МТР']
         data = []
         for row in range(mtr_table.rowCount()):
-            # Извлекаем данные из каждой строки: п/п, Объект контроля, Сертификаты, паспорта и иные документы, *Акты входного контроля
+            
             row_data = tuple(mtr_table.item(row, col).text() if mtr_table.item(row, col) else '' for col in range(mtr_table.columnCount()))
             data.append(row_data)
         return data
 
     def get_agreement_data(self):
-    # Этот метод извлекает данные из таблицы "Ведомость МТР" и возвращает их в виде списка кортежей
+    
         agreement_table = self.other_tables['Согласования']
         data = []
         for row in range(agreement_table.rowCount()):
-            # Извлекаем данные из каждой строки: п/п, Объект контроля, Сертификаты, паспорта и иные документы, *Акты входного контроля
+            
             row_data = tuple(agreement_table.item(row, col).text() if agreement_table.item(row, col) else '' for col in range(agreement_table.columnCount()))
             data.append(row_data)
         return data
     
     def get_scheme_data(self):
-    # Этот метод извлекает данные из таблицы "Ведомость МТР" и возвращает их в виде списка кортежей
+    
         scheme_table = self.other_tables['Исп. схемы']
         data = []
         for row in range(scheme_table.rowCount()):
-            # Извлекаем данные из каждой строки: п/п, Объект контроля, Сертификаты, паспорта и иные документы, *Акты входного контроля
+            
             row_data = tuple(scheme_table.item(row, col).text() if scheme_table.item(row, col) else '' for col in range(scheme_table.columnCount()))
             data.append(row_data)
         return data
@@ -574,7 +610,7 @@ class AOSRApp(QMainWindow):
         row_count = self.table.rowCount()
         self.table.insertRow(row_count)
         if row_count > 0:
-            # Get the last row's Номер АОСР and increment it
+            
             last_item = self.table.item(row_count - 1, 0)
             if last_item:
                 last_aosr_number = int(last_item.text())
@@ -582,16 +618,16 @@ class AOSRApp(QMainWindow):
                 last_aosr_number = 0
             next_aosr_number = last_aosr_number + 1
         else:
-            next_aosr_number = 1  # Start from 1 if the table is empty
+            next_aosr_number = 1  
         
-        # Setting the next Номер АОСР
+        
         aosr_number_item = NumericTableWidgetItem(str(next_aosr_number))
         self.table.setItem(row_count, 0, aosr_number_item)
         self.set_default_value(row_count)
         self.table.setItem(row_count, 0, aosr_number_item)
         self.set_default_value(row_count)
         for col_index in range(1, self.table.columnCount()):
-            if col_index in [3, 4, 5]:  # For date columns
+            if col_index in [3, 4, 5]:  
                 date_editor = QDateEdit(self)
                 date_editor.setCalendarPopup(True)
                 date_editor.setDate(QDate.currentDate())
@@ -623,32 +659,32 @@ class AOSRApp(QMainWindow):
     def validate_date(self, row, column):
         date_editor = self.table.cellWidget(row, column)
         if not date_editor:
-            return True  # No date editor, no validation needed
+            return True  
         date = date_editor.date()
-        if column == 3:  # Start date
+        if column == 3:  
             end_date_editor = self.table.cellWidget(row, 4)
             if end_date_editor and date > end_date_editor.date():
                 date_editor.setStyleSheet("background-color: #ffcccc;")
                 end_date_editor.setStyleSheet("background-color: #ffcccc;")
                 return False
-        elif column == 4:  # End date
+        elif column == 4:  
             start_date_editor = self.table.cellWidget(row, 3)
             if start_date_editor and date < start_date_editor.date():
                 date_editor.setStyleSheet("background-color: #ffcccc;")
                 start_date_editor.setStyleSheet("background-color: #ffcccc;")
                 return False
-        elif column == 5:  # Sign date
+        elif column == 5:  
             start_date_editor = self.table.cellWidget(row, 3)
             end_date_editor = self.table.cellWidget(row, 4)
             if (start_date_editor and date < start_date_editor.date()) or (end_date_editor and date < end_date_editor.date()):
                 date_editor.setStyleSheet("background-color: #ffcccc;")
                 return False
-        date_editor.setStyleSheet("")  # Reset style if no errors
+        date_editor.setStyleSheet("")  
         return True
 
     def validate_all_dates(self):
         for row in range(self.table.rowCount()):
-            for col in [3, 4, 5]:  # Validate all date columns
+            for col in [3, 4, 5]:  
                 self.validate_date(row, col)
 
     def save_changes(self, filename='docs/журнал_аоср.csv'):
@@ -657,11 +693,11 @@ class AOSRApp(QMainWindow):
             for row in range(self.table.rowCount()):
                 row_data = []
                 for col in range(self.table.columnCount()):
-                    if col in [3, 4, 5]:  # Date columns
+                    if col in [3, 4, 5]:  
                         date_editor = self.table.cellWidget(row, col)
                         date = date_editor.date().toString("yyyy-MM-dd") if date_editor else ""
                         row_data.append(date)
-                    elif col == 12:  # Для столбца актов
+                    elif col == 12:  
                         combo_box = self.table.cellWidget(row, col)
                         value = combo_box.currentText() if combo_box else 'Нет'
                         row_data.append(value)
@@ -683,7 +719,7 @@ class AOSRApp(QMainWindow):
                 writer.writerow(row_data)
 
     def save_all_tables(self):
-    # Сохраняем данные из основной таблицы Журнал АОСР
+    
         for tab_name in self.tabs:
             if tab_name == 'Журнал АОСР':
                 self.save_changes()
@@ -700,18 +736,18 @@ class AOSRApp(QMainWindow):
             return
 
         dialog = VolumeSelectionDialog(self)
-        # Передача данных в диалоговое окно
+        
         volume_data = self.get_volume_data()
         dialog.set_data(volume_data)
         
         if dialog.exec_() == QtWidgets.QDialog.Accepted and dialog.selected_data:
-            # Вставляем данные в 7-й столбец выбранной строки
+            
             self.reload_ov()
             self.table.setItem(selected_row, 7, QtWidgets.QTableWidgetItem(dialog.selected_data))
 
     def get_volume_data(self):
-        # Этот метод должен возвращать данные из вкладки "Виды и объемы работ" в виде списка списков
-        # Пример: [['Разработка грунта в котловане', '213', 'м3'], ...]
+        
+        
         data = []
         volume_table = self.other_tables['Виды и объемы работ']
         for row in range(volume_table.rowCount()):
