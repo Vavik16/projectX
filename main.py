@@ -1,15 +1,16 @@
 import sys
 import csv
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
+from PyQt5.QtWidgets import (QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
 import os
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from spire.xls import *
 from spire.xls.common import *  
 import datetime
+import openpyxl
 
 
 class SchemeSelectionDialog(QtWidgets.QDialog):
@@ -302,6 +303,7 @@ class AOSRApp(QMainWindow):
             ('Согласования', 'images/6.png'),
             ('Виды и объемы работ', 'images/5.png'),
             ('Реестр ИД', 'images/4.png'),
+            ('Управление проектами', 'images/7.png'),
         ]
         for name, icon_path in tab_names:
             tab = QWidget()
@@ -389,41 +391,45 @@ class AOSRApp(QMainWindow):
             'Виды и объемы работ': ['', 'Ед.изм', 'Номер'],
             'Реестр ИД': ['№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
             'Ведомость МТР': ['п/п', 'Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
-            'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание']
+            'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание'],
+            'Управление проектами': ['']
         }
         for name, headers in tab_configs.items():
-            tab = self.tabs[name]
-            layout = QVBoxLayout()
-            table = QTableWidget(0, len(headers))
-            table.resizeRowsToContents()  
-            table.setHorizontalHeaderLabels(headers)
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-            table.horizontalHeader().setStretchLastSection(True)
-            self.initialize_default_values()
-            for column in range(table.columnCount()):
-                header_item = table.horizontalHeaderItem(column)
-                header_item.setToolTip(header_item.text())  
+            if name == 'Управление проектами':
+                self.setupProjectManagementTab()
+            else:
+                tab = self.tabs[name]
+                layout = QVBoxLayout()
+                table = QTableWidget(0, len(headers))
+                table.resizeRowsToContents()  
+                table.setHorizontalHeaderLabels(headers)
+                table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+                table.horizontalHeader().setStretchLastSection(True)
+                self.initialize_default_values()
+                for column in range(table.columnCount()):
+                    header_item = table.horizontalHeaderItem(column)
+                    header_item.setToolTip(header_item.text())  
 
-            tab.setLayout(layout)
-            layout.addWidget(table)
+                tab.setLayout(layout)
+                layout.addWidget(table)
 
-            button_panel = QWidget()
-            button_layout = QHBoxLayout()
-            button_panel.setLayout(button_layout)
+                button_panel = QWidget()
+                button_layout = QHBoxLayout()
+                button_panel.setLayout(button_layout)
 
-            btn_add = QPushButton('Добавить запись')
-            btn_remove = QPushButton('Удалить запись')
-            btn_save = QPushButton('Сохранить записи')
-            btn_add.clicked.connect(lambda checked, t=table: self.add_other_record(t))
-            btn_remove.clicked.connect(lambda checked, t=table: self.remove_other_record(t))
-            btn_save.clicked.connect(lambda: self.save_all_tables())
+                btn_add = QPushButton('Добавить запись')
+                btn_remove = QPushButton('Удалить запись')
+                btn_save = QPushButton('Сохранить записи')
+                btn_add.clicked.connect(lambda checked, t=table: self.add_other_record(t))
+                btn_remove.clicked.connect(lambda checked, t=table: self.remove_other_record(t))
+                btn_save.clicked.connect(lambda: self.save_all_tables())
 
-            button_layout.addWidget(btn_add)
-            button_layout.addWidget(btn_remove)
-            button_layout.addWidget(btn_save)
-            layout.addWidget(button_panel)
+                button_layout.addWidget(btn_add)
+                button_layout.addWidget(btn_remove)
+                button_layout.addWidget(btn_save)
+                layout.addWidget(button_panel)
 
-            self.other_tables[name] = table
+                self.other_tables[name] = table
 
 
     def add_other_record(self, table):
@@ -451,6 +457,64 @@ class AOSRApp(QMainWindow):
     def initialize_default_values(self):
         for row in range(self.table.rowCount()):
             self.set_default_value(row)
+
+    def setupProjectManagementTab(self):
+        tab = self.tabs['Управление проектами']
+        layout = QVBoxLayout()
+        tab.setLayout(layout)
+
+        # Upload button
+        upload_button = QPushButton('Загрузить')
+        upload_button.clicked.connect(self.upload_excel_data)
+        layout.addWidget(upload_button)
+
+        # Download button
+        download_button = QPushButton('Выгрузить')
+        download_button.clicked.connect(self.download_csv_data)
+        layout.addWidget(download_button)
+
+    def upload_excel_data(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Открыть файл", "", "Excel Files (*.xlsx)")
+        if file_path:
+            try:
+                wb = load_workbook(file_path, data_only=True)  # Ensure formulas are not read but their values
+                for sheet_name in wb.sheetnames:
+                    sheet = wb[sheet_name]
+                    # Directly creating DataFrame from the Excel sheet
+                    data = pd.DataFrame(sheet.values)
+                    headers = data.iloc[0]  # Assuming the first row is the header
+                    data = data[1:]  # Remove the header row from the data
+                    data.columns = headers  # Set the header row as the DataFrame column names
+
+                    csv_path = f"docs/{sheet_name}.csv"
+                    data.to_csv(csv_path, index=False, header=True, encoding='utf-8')
+                self.load_table_data()
+                QMessageBox.information(self, 'Успех', 'Данные загружены.')
+            except Exception as e:
+                QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить данные: {str(e)}')
+
+    def download_csv_data(self):
+        folder_path = 'docs/'
+        files = os.listdir(folder_path)
+        csv_files = [f for f in files if f.endswith('.csv')]
+        
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)  # Remove the default sheet
+
+        for file_name in csv_files:
+            data = pd.read_csv(f'{folder_path}{file_name}')
+            ws = wb.create_sheet(title=file_name.replace('.csv', ''))
+
+            for col_num, col_name in enumerate(data.columns, start=1):
+                ws.cell(row=1, column=col_num, value=col_name)
+            
+            for row_num, row in enumerate(data.itertuples(index=False, name=None), start=2):
+                for col_num, item in enumerate(row, start=1):   
+                    ws.cell(row=row_num, column=col_num, value=item)
+        
+        wb.save('docs/project.xlsx')
+        QMessageBox.information(self, 'Успех', 'Все данные выгружены в Excel файл project.xlsx.')
+
 
     def set_default_value(self, row_index):
     
@@ -605,11 +669,14 @@ class AOSRApp(QMainWindow):
         self.table.itemChanged.disconnect(self.item_changed)
         try:
             with open('docs/журнал_аоср.csv', 'r', encoding='utf-8') as file:
+                self.table.setRowCount(0)
                 reader = csv.reader(file)
                 for row_index, row_data in enumerate(reader):
                     self.table.insertRow(row_index)
                     self.set_default_value(row_index)
                     for col_index, value in enumerate(row_data):
+                        if "Unnamed" in value:
+                            value = ""
                         if col_index in [3, 4, 5]:  
                             date = QDate.fromString(value, "MM/dd/yyyy") if value else QDate.currentDate()
                             date_editor = QDateEdit(self)
@@ -638,12 +705,15 @@ class AOSRApp(QMainWindow):
                     continue
                 elif tab_name == 'Информация':
                     self.load_and_display_excel_data()
-                else:
+                else: 
                     with open(f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv', 'r', encoding='utf-8') as file:
+                        table.setRowCount(0)
                         reader = csv.reader(file)
-                        for row_index, row_data in enumerate(reader):
+                        for row_index, row_data in enumerate(reader):                        
                             table.insertRow(row_index)
                             for col_index, value in enumerate(row_data):
+                                if "Unnamed:" in value:
+                                    value = ""
                                 item = NumericTableWidgetItem(value if value else '')
                                 table.setItem(row_index, col_index, item)
                                 item.setToolTip(value)
@@ -696,11 +766,13 @@ class AOSRApp(QMainWindow):
             table.setRowCount(len(data_frame.index))
             table.setColumnCount(len(data_frame.columns))
             table.horizontalHeader().setVisible(False)  
-            editable_rows_first_column = {2, 5, 8, 12, 14}
-
+            editable_rows_first_column = {3, 6, 9, 13, 15}
+            
             
             for index, row in data_frame.iterrows():
                 for col_index, value in enumerate(row):
+                    if "Unnamed:" in value:
+                        value = ""
                     item = QTableWidgetItem(str(value))
                     item.setFlags(Qt.ItemIsEnabled)  
                     if col_index == len(row) - 1 or (col_index == 0 and (index + 1) in editable_rows_first_column):
