@@ -5,6 +5,12 @@ from PyQt5.QtWidgets import (QHBoxLayout, QApplication, QMainWindow, QTabWidget,
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
+import os
+from openpyxl import load_workbook
+from spire.xls import *
+from spire.xls.common import *  
+import datetime
+
 
 class SchemeSelectionDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
@@ -217,11 +223,10 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
         if ok:
             
             selected_row = self.parent().table.currentRow()
-            existing_data_item = self.parent().table.item(selected_row, 6)
+            existing_data_item = self.parent().table.item(selected_row, 7)
 
             
             existing_data = existing_data_item.text() if existing_data_item else ""
-            
             
             work_type = self.table.item(row, 0).text()
             volume = self.table.item(row, 1).text()
@@ -232,7 +237,7 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
 
             
             if existing_data:
-                self.selected_data = f"{existing_data}; {new_selection}".strip()
+                self.selected_data = f"{existing_data}, {new_selection}".strip()
             else:
                 self.selected_data = new_selection
         
@@ -345,8 +350,11 @@ class AOSRApp(QMainWindow):
         btn_agreements.clicked.connect(self.open_agreement_selection)
         btn_select_scheme = QPushButton('Выбрать схему')
         btn_select_scheme.clicked.connect(self.open_scheme_selection)
-
+        btn_clear_cell = QPushButton('Очистить ячейку')
+        btn_clear_cell.clicked.connect(self.clear_selected_cell)
+        
         button_layout.addWidget(btn_create_act)
+        button_layout.addWidget(btn_clear_cell)
         button_layout.addWidget(btn_select_mtr)
         button_layout.addWidget(btn_select_volume)
         button_layout.addWidget(btn_agreements)
@@ -361,6 +369,14 @@ class AOSRApp(QMainWindow):
         btn_remove.clicked.connect(self.remove_record)
         layout.addWidget(btn_add)
         layout.addWidget(btn_remove)
+    
+    def clear_selected_cell(self):
+        selected_items = self.table.selectedItems()
+        if selected_items:
+            for item in selected_items:
+                item.setText('')  
+
+
     def open_mtr_selection(self):
         dialog = MTRSelectionDialog(self)
         dialog.exec_()
@@ -371,7 +387,7 @@ class AOSRApp(QMainWindow):
             'Согласования': ['Наименование документа'],
             'Информация' : [''],
             'Виды и объемы работ': ['', 'Ед.изм', 'Номер'],
-            'Реестр ИД': ['№п/п', '№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
+            'Реестр ИД': ['№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
             'Ведомость МТР': ['п/п', 'Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
             'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание']
         }
@@ -454,8 +470,133 @@ class AOSRApp(QMainWindow):
         self.table.setCellWidget(row_index, 12, combo_box_11)
 
     def export_to_pdf_and_xls(self):
-        pass
+        self.save_changes()
+        journal_path = 'docs/журнал_аоср.csv'
+        info_path = 'docs/информация.csv'
+        template_path = 'docs/blank.xlsx'
+        registry_path = 'docs/реестр_ид.csv'
+        xls_output_dir = 'Acts/XLS'
+        pdf_output_dir = 'Acts/PDF'
+            
+        os.makedirs(xls_output_dir, exist_ok=True)
+        os.makedirs(pdf_output_dir, exist_ok=True)
+        
+        try:
+            journal_df = pd.read_csv(journal_path, header=None)
+            info_df = pd.read_csv(info_path, header=None)
+            
+            with open(registry_path, 'w+', newline='', encoding='utf-8') as reg_file:
+                reg_writer = csv.writer(reg_file, quoting=csv.QUOTE_ALL)
+                
+                for row in range(self.table.rowCount()):
+                    if self.table.cellWidget(row, 12) and self.table.cellWidget(row, 12).currentText() == 'Да':
+                        aosr_number = self.table.item(row, 0).text()
+                        column_6_value = self.table.item(row, 6).text() if self.table.item(row, 6) else ''
+                        column_13_value = self.table.item(row, 13).text().split('; ') if self.table.item(row, 13) else ''
+                        reg_writer.writerow([f"АОСР № {aosr_number}", column_6_value, None, None])
+                        for itemss in column_13_value:
+                            reg_writer.writerow(['', itemss, None, None])
+                        selected_mtrs = self.get_selected_mtr_data(row)
+                        for mtr in selected_mtrs:
+                            reg_writer.writerow(['', mtr[2], None, None])
+                        
+                        xls_filename = f"{xls_output_dir}/{aosr_number}.xlsx"
+                        pdf_filename = f"{pdf_output_dir}/{aosr_number}.pdf"
+                    
+                    
+                    with open(template_path, "rb") as f_template, open(xls_filename, "wb") as f_output:
+                        f_output.write(f_template.read())
+                    
+                    wb = load_workbook(xls_filename)
+                    sheet = wb.active
+                    cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
+                    journal_row_data = journal_df.iloc[row].tolist()
+                    for index, cell in enumerate(cell_mapping):
+                        if cell:
+                            if cell in ['H6', 'D41', 'D42']:
+                                date_str = journal_row_data[index]
+                                formatted_date = datetime.datetime.strptime(date_str, '%m/%d/%Y').strftime('%d.%m.%Y')
+                                sheet[cell] = formatted_date
+                            else:
+                                sheet[cell] = journal_row_data[index]
+                    
+                    info_mapping = {'A13': 2, 'A16': 5, 'A19': 8, 'A23': 12, 'A25': 14, 'H51': (20, 1), 'H55': (24, 1), 'H58': (27, 1), 'H61': (30, 1)}
+                    for cell, ref in info_mapping.items():
+                        if isinstance(ref, tuple):
+                            sheet[cell] = info_df.iloc[ref[0], ref[1]]
+                        else:
+                            sheet[cell] = info_df.iloc[ref, 0]
+                    
+                    wb.save(xls_filename)
+                    wb.close()
+                    
+                                        
 
+                    workbook = Workbook()
+
+                    
+
+                    workbook.LoadFromFile(xls_filename)
+
+                    
+
+                    for sheet in workbook.Worksheets:
+                        pageSetup = sheet.PageSetup
+                        pageSetup.TopMargin = 0.3
+                        pageSetup.BottomMargin = 0.3
+                        pageSetup.LeftMargin = 0.3
+                        pageSetup.RightMargin = 0.3
+                    workbook.ConverterSetting.SheetFitToPage = True
+
+                    
+
+                    workbook.SaveToFile(pdf_filename, FileFormat.PDF)
+                    workbook.Dispose()
+
+
+            self.reload_reg()
+
+            QMessageBox.information(self, 'Успешно', f'Акты сформированы')
+        except Exception as e:
+           QMessageBox.warning(self, 'Ошибка', f'Не удалось сформировать акт')
+            
+                
+    def get_selected_mtr_data(self, aosr_row):
+        mtr_table = self.other_tables['Ведомость МТР']
+        selected_mtrs = []
+        
+
+        selected_ids = self.table.item(aosr_row, 9).text().split('; ') if self.table.item(aosr_row, 9) else []
+        for mtr_id in selected_ids:
+            for row in range(mtr_table.rowCount()):
+                mtr_number = mtr_table.item(row, 1).text() if mtr_table.item(row, 1) else ''
+                if mtr_number in mtr_id:
+                    scheme = mtr_table.item(row, 0).text() if mtr_table.item(row, 0) else ''
+                    quality_docs = mtr_table.item(row, 2).text() if mtr_table.item(row, 2) else ''
+                    selected_mtrs.append((scheme, mtr_number, quality_docs))
+        return selected_mtrs
+
+    def create_xlsx_from_template(self, registry_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Registry Data"
+        
+        
+
+        headers = ['АОСР №', 'Наименование объекта', 'Документы и сертификаты о качестве', 'Исполнительные схемы']
+        ws.append(headers)
+        
+        with open(registry_path, 'r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                ws.append(row)
+        
+        
+
+        output_xlsx_path = 'docs/реестр_ид.xlsx'
+        wb.save(output_xlsx_path)
+        wb.close()
+    
     def tab_changed(self, index):
         tab_name = self.tab_widget.tabText(index)
         self.setWindowTitle(f'АОСР - {tab_name}')
@@ -470,7 +611,7 @@ class AOSRApp(QMainWindow):
                     self.set_default_value(row_index)
                     for col_index, value in enumerate(row_data):
                         if col_index in [3, 4, 5]:  
-                            date = QDate.fromString(value, "yyyy-MM-dd") if value else QDate.currentDate()
+                            date = QDate.fromString(value, "MM/dd/yyyy") if value else QDate.currentDate()
                             date_editor = QDateEdit(self)
                             date_editor.setDate(date)
                             date_editor.setCalendarPopup(True)
@@ -526,6 +667,19 @@ class AOSRApp(QMainWindow):
                         table.setItem(row_index, col_index, item)
                         item.setToolTip(value)
                         table.resizeRowToContents(item.row())
+    def reload_reg(self):
+        with open('docs/реестр_ид.csv', 'r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                table = self.other_tables['Реестр ИД']
+                table.setRowCount(0)
+                for row_index, row_data in enumerate(reader):
+                    table.insertRow(row_index)
+                    for col_index, value in enumerate(row_data):
+                        item = NumericTableWidgetItem(value if value else '')
+                        table.setItem(row_index, col_index, item)
+                        item.setToolTip(value)
+                        table.resizeRowToContents(item.row())
+
     def create_date_changed_handler(self, row, col):
         def handle_date_changed(date):
             self.date_item_changed(row, col, date)
@@ -535,7 +689,6 @@ class AOSRApp(QMainWindow):
     def load_and_display_excel_data(self):
         csv_path = 'docs/информация.csv'
         try:
-                
             data_frame = pd.read_csv(csv_path, header=None)
             data_frame = data_frame.fillna('')  
             
@@ -543,8 +696,6 @@ class AOSRApp(QMainWindow):
             table.setRowCount(len(data_frame.index))
             table.setColumnCount(len(data_frame.columns))
             table.horizontalHeader().setVisible(False)  
-
-            
             editable_rows_first_column = {2, 5, 8, 12, 14}
 
             
@@ -689,13 +840,13 @@ class AOSRApp(QMainWindow):
 
     def save_changes(self, filename='docs/журнал_аоср.csv'):
         with open(filename, 'w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
+            writer = csv.writer(file, quoting=csv.QUOTE_ALL) 
             for row in range(self.table.rowCount()):
                 row_data = []
                 for col in range(self.table.columnCount()):
                     if col in [3, 4, 5]:  
                         date_editor = self.table.cellWidget(row, col)
-                        date = date_editor.date().toString("yyyy-MM-dd") if date_editor else ""
+                        date = date_editor.date().toString("MM/dd/yyyy") if date_editor else ""
                         row_data.append(date)
                     elif col == 12:  
                         combo_box = self.table.cellWidget(row, col)
@@ -709,7 +860,7 @@ class AOSRApp(QMainWindow):
 
     def save_table_data(self, table, filename):
         with open(filename, 'w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
+            writer = csv.writer(file, quoting=csv.QUOTE_ALL) 
             for row in range(table.rowCount()):
                 row_data = []
                 for col in range(table.columnCount()):
