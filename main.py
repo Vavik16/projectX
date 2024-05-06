@@ -1,7 +1,7 @@
 import sys
 import csv
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
+from PyQt5.QtWidgets import (QUndoCommand, QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
@@ -25,8 +25,9 @@ class SchemeSelectionDialog(QtWidgets.QDialog):
         self.table.setHorizontalHeaderLabels(['Наименование схемы', '№', 'Примечание'])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
-
+        self.setGeometry(100, 100, 800, 600)
         self.populate_table()
+        self.table.resizeColumnsToContents()
 
         self.ok_button = QtWidgets.QPushButton('OK')
         self.ok_button.clicked.connect(self.accept_selection)
@@ -85,7 +86,8 @@ class AgreementSelectionDialog(QtWidgets.QDialog):
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
 
         self.populate_table()
-
+        self.table.resizeColumnsToContents()
+        self.setGeometry(100, 100, 800, 600)
         self.ok_button = QtWidgets.QPushButton('OK')
         self.ok_button.clicked.connect(self.accept_selection)
         self.cancel_button = QtWidgets.QPushButton('Отмена')
@@ -140,12 +142,12 @@ class MTRSelectionDialog(QtWidgets.QDialog):
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)  
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)  
 
-        
+        self.setGeometry(100, 100, 800, 600)
         self.table.setStyleSheet("QTableWidget::item:selected { background-color: #add8e6; }")
 
         self.populate_table()
 
-        
+        self.table.resizeColumnsToContents()
         self.ok_button = QtWidgets.QPushButton('OK')
         self.ok_button.clicked.connect(self.accept_selection)
         self.cancel_button = QtWidgets.QPushButton('Отмена')
@@ -158,13 +160,17 @@ class MTRSelectionDialog(QtWidgets.QDialog):
     
 
     def populate_table(self):
-        mtr_data = self.parent().get_mtr_data()  
+        mtr_data = self.parent().get_mtr_data()
         self.table.setRowCount(len(mtr_data))
-        for row_index, row_data in enumerate(mtr_data):
-            
-            for col_index in range(0, self.table.columnCount()):
-                self.table.setItem(row_index, col_index, QtWidgets.QTableWidgetItem(row_data[col_index+1]))
 
+        for row_index, row_data in enumerate(mtr_data):
+            for col_index in range(0, self.table.columnCount()):
+                # Ensure that the column index does not exceed the length of row_data
+                if col_index < len(row_data):
+                    self.table.setItem(row_index, col_index, QtWidgets.QTableWidgetItem(row_data[col_index]))
+                else:
+                    # Optionally handle or log the missing data case
+                    print(f"Missing data for row {row_index} column {col_index}")
 
     def accept_selection(self):
         selected_rows = self.table.selectionModel().selectedRows()
@@ -188,7 +194,7 @@ class MTRSelectionDialog(QtWidgets.QDialog):
             return
 
         existing_item = self.parent().table.item(selected_row, 9)
-        existing_text = existing_item.text() if existing_item and existing_item.text() != "Не применялась" else ""
+        existing_text = existing_item.text() if existing_item and existing_item.text() != "Не применялись" else ""
         new_text = "; ".join(selected_items)
         final_text = existing_text + "; " + new_text if existing_text else new_text
         self.parent().table.setItem(selected_row, 9, QtWidgets.QTableWidgetItem(final_text))
@@ -203,12 +209,12 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
 
         self.table = QtWidgets.QTableWidget(0, 3)  
         self.layout.addWidget(self.table)
-        
+        self.setGeometry(100, 100, 800, 600)
         self.ok_button = QtWidgets.QPushButton('OK')
         self.ok_button.clicked.connect(self.accept)
         self.cancel_button = QtWidgets.QPushButton('Отмена')
         self.cancel_button.clicked.connect(self.reject)
-        
+        self.table.resizeColumnsToContents()
         button_layout = QtWidgets.QHBoxLayout()
         button_layout.addWidget(self.ok_button)
         button_layout.addWidget(self.cancel_button)
@@ -238,7 +244,7 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
 
             
             if existing_data:
-                self.selected_data = f"{existing_data}, {new_selection}".strip()
+                self.selected_data = f"{existing_data}; {new_selection}".strip()
             else:
                 self.selected_data = new_selection
         
@@ -254,7 +260,7 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
                     writer.writerow([work_type, volume, num, aosr_number])
             except Exception as e:
                 QMessageBox.warning(self, 'Ошибка', f'Не удалось сохранить данные: {e}')
-            self.accept()  
+            self.accept()
         else:
             self.selected_data = None
             self.reject()  
@@ -280,11 +286,29 @@ class NumericTableWidgetItem(QTableWidgetItem):
         except ValueError:
             return self.text() < other.text()
 
+class EditCellCommand(QUndoCommand):
+    def __init__(self, table, row, column, old_value, new_value):
+        super().__init__()
+        self.table = table
+        self.row = row
+        self.column = column
+        self.old_value = old_value
+        self.new_value = new_value
+        self.setText(f"Edit cell at ({row}, {column})")
+
+    def redo(self):
+        self.table.item(self.row, self.column).setText(self.new_value)
+
+    def undo(self):
+        self.table.item(self.row, self.column).setText(self.old_value)
+
 class AOSRApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.undo_stack = QtWidgets.QUndoStack(self)
         self.row_modified = {}
         self.initUI()
+        
 
     def initUI(self):
         self.setWindowTitle('Журнал АОСР')
@@ -322,15 +346,16 @@ class AOSRApp(QMainWindow):
         self.table = QTableWidget(0, 14)  
         
         self.table.setHorizontalHeaderLabels([
-            'Номер\nАОСР', 'Город\nстроительства', 'Наименование\n объекта', 'Дата начала\nработ', 'Дата окончания\nработ',
-            'Дата подписания\nакта', '1. К освидетельствованию\nпредъявлены работы', 'Вид и объём работ\n(выгрузка ведомости)',
-            'Работы выполнены\nпо проектно-сметной \nдок.', 'При\nвыполнении работ\nприменены', 'При\nвыполнении работ\nотклонения',
-            'Разрешается для\nпроизводства работ', 'Сформировать\nакт', 'Исполнительная\nсхема'
+            'Номер\nАОСР', 'Город\nстроительства', 'Наименование\n объекта', 'Дата\nначала\nработ', 'Дата\nокончания\nработ',
+            'Дата подписания\nакта', '1. К\nосвидетельствованию\nпредъявлены работы', 'Вид и\nобъём\nработ\n(выгрузка ведомости)',
+            'Работы выполнены\nпо\nпроектно-сметной\nдок.', 'При\nвыполнении работ\nприменены', 'При\nвыполнении работ\nотклонения',
+            'Разрешается\nдля\nпроизводства работ', 'Сформировать\nакт', 'Исполнительная\nсхема'
         ])
         self.table.resizeRowsToContents()  
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setStretchLastSection(True)
+        self.table.itemChanged.connect(self.capture_change)
         self.initialize_default_values()
         for column in range(self.table.columnCount()):
             header_item = self.table.horizontalHeaderItem(column)
@@ -354,7 +379,10 @@ class AOSRApp(QMainWindow):
         btn_select_scheme.clicked.connect(self.open_scheme_selection)
         btn_clear_cell = QPushButton('Очистить ячейку')
         btn_clear_cell.clicked.connect(self.clear_selected_cell)
+        btn_undo = QPushButton('Отменить последнее действие')
+        btn_undo.clicked.connect(self.undo_stack.undo)
         
+        button_layout.addWidget(btn_undo)
         button_layout.addWidget(btn_create_act)
         button_layout.addWidget(btn_clear_cell)
         button_layout.addWidget(btn_select_mtr)
@@ -372,11 +400,27 @@ class AOSRApp(QMainWindow):
         layout.addWidget(btn_add)
         layout.addWidget(btn_remove)
     
+    def capture_change(self, item):
+        # On cell change, push an edit command to the undo stack
+        old_value = item.data(QtCore.Qt.UserRole)  # UserRole used to store old value
+        new_value = item.text()
+        if item.column() == 7 and old_value != new_value:
+            self.export_work_volume_to_general_ledger()
+        if old_value is None or old_value != new_value:
+            command = EditCellCommand(self.table, item.row(), item.column(), old_value, new_value)
+            self.undo_stack.push(command)
+        item.setData(QtCore.Qt.UserRole, new_value)  # Update the UserRole with new value
+
     def clear_selected_cell(self):
         selected_items = self.table.selectedItems()
         if selected_items:
             for item in selected_items:
-                item.setText('')  
+                row, col = item.row(), item.column()
+                # Verify the item still exists in the table
+                if self.table.item(row, col) is not None:
+                    self.table.item(row, col).setText('')  # Safely set text
+                    if col == 7:
+                        self.export_work_volume_to_general_ledger()
 
 
     def open_mtr_selection(self):
@@ -390,7 +434,7 @@ class AOSRApp(QMainWindow):
             'Информация' : [''],
             'Виды и объемы работ': ['', 'Ед.изм', 'Номер'],
             'Реестр ИД': ['№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
-            'Ведомость МТР': ['п/п', 'Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
+            'Ведомость МТР': ['Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
             'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание'],
             'Управление проектами': ['']
         }
@@ -705,6 +749,7 @@ class AOSRApp(QMainWindow):
                     continue
                 elif tab_name == 'Информация':
                     self.load_and_display_excel_data()
+                    self.load_information_data()
                 else: 
                     with open(f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv', 'r', encoding='utf-8') as file:
                         table.setRowCount(0)
@@ -724,6 +769,29 @@ class AOSRApp(QMainWindow):
             self.table.itemChanged.connect(self.item_changed)
             self.table.sortItems(0, QtCore.Qt.AscendingOrder)  
             self.validate_all_dates()
+
+    def load_information_data(self):
+        """ Load the first two rows from информация.csv and set them as values for the 2nd and 3rd columns in the AOSR journal table. """
+        try:
+            with open('docs/информация.csv', 'r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                info_data = list(reader)[:2]  # Read only the first two rows
+
+                for row_index in range(self.table.rowCount()):
+                    # Ensure the table has enough rows to receive the data
+                    if self.table.rowCount() < row_index + 1:
+                        self.table.insertRow(self.table.rowCount())  # Add a new row if necessary
+
+                    # Update the 2nd column with the first row of CSV data, if available
+                    city_data = info_data[0][0]
+                    self.table.setItem(row_index, 1, QTableWidgetItem(city_data))
+
+                    # Update the 3rd column with the second row of CSV data, if available
+                    object_name_data = info_data[1][0]
+                    self.table.setItem(row_index, 2, QTableWidgetItem(object_name_data))
+
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить информацию: {str(e)}')
 
     def reload_ov(self):
         with open('docs/общая_ведомость.csv', 'r', encoding='utf-8') as file:
@@ -753,7 +821,7 @@ class AOSRApp(QMainWindow):
     def create_date_changed_handler(self, row, col):
         def handle_date_changed(date):
             self.date_item_changed(row, col, date)
-            self.save_all_tables()
+            self.save_changes()
         return handle_date_changed
 
     def load_and_display_excel_data(self):
@@ -766,8 +834,7 @@ class AOSRApp(QMainWindow):
             table.setRowCount(len(data_frame.index))
             table.setColumnCount(len(data_frame.columns))
             table.horizontalHeader().setVisible(False)  
-            editable_rows_first_column = {3, 6, 9, 13, 15}
-            
+            editable_rows_first_column = {1, 2, 5, 8, 11, 15, 17}
             
             for index, row in data_frame.iterrows():
                 for col_index, value in enumerate(row):
@@ -782,7 +849,6 @@ class AOSRApp(QMainWindow):
                         item.setBackground(QColor(240, 240, 240))  
 
                     table.setItem(index, col_index, item)
-
             table.resizeColumnsToContents()
         except Exception as e:
             QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить данные из Excel файла: {str(e)}')
@@ -795,6 +861,18 @@ class AOSRApp(QMainWindow):
         self.row_modified[item.row()] = True
         self.table.resizeRowToContents(item.row())
         self.update_tooltip(item)
+
+    def export_work_volume_to_general_ledger(self):
+        with open('docs/общая_ведомость.csv', 'w', newline='', encoding='utf-8') as file:
+            writer = csv.writer(file)
+            for row in range(self.table.rowCount()):
+                if len(self.table.item(row, 7).text().split("_")) >= 4:
+                    for item in self.table.item(row, 7).text().split("; "):
+                        work_volume_data = item.split("_")
+                        writer.writerow([work_volume_data[1], work_volume_data[3], work_volume_data[2], row+1])
+                else:
+                    writer.writerow("")
+        self.reload_ov()
 
     def update_tooltip(self, item):
         item.setToolTip(item.text()) 
@@ -942,14 +1020,17 @@ class AOSRApp(QMainWindow):
                 writer.writerow(row_data)
 
     def save_all_tables(self):
-    
-        for tab_name in self.tabs:
-            if tab_name == 'Журнал АОСР':
-                self.save_changes()
-            elif tab_name in self.other_tables:
-                table = self.other_tables[tab_name]
-                filename = f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv'
-                self.save_table_data(table, filename)
+        try:
+            for tab_name in self.tabs:
+                if tab_name == 'Журнал АОСР':
+                    self.save_changes()
+                elif tab_name in self.other_tables:
+                    table = self.other_tables[tab_name]
+                    filename = f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv'
+                    self.save_table_data(table, filename)
+            self.load_table_data()
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', 'Не удалось сохранить изменения.')        
 
     
     def open_volume_selection(self):
@@ -967,6 +1048,8 @@ class AOSRApp(QMainWindow):
             
             self.reload_ov()
             self.table.setItem(selected_row, 7, QtWidgets.QTableWidgetItem(dialog.selected_data))
+            self.save_changes()
+            self.export_work_volume_to_general_ledger()  
 
     def get_volume_data(self):
         
