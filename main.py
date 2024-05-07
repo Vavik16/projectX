@@ -1,3 +1,5 @@
+import shutil
+from win32com import client
 import sys
 import csv
 from PyQt5 import QtCore, QtWidgets
@@ -11,7 +13,7 @@ from spire.xls import *
 from spire.xls.common import *  
 import datetime
 import openpyxl
-
+from openpyxl.styles import Font, Alignment
 
 class SchemeSelectionDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
@@ -585,9 +587,14 @@ class AOSRApp(QMainWindow):
         registry_path = 'docs/реестр_ид.csv'
         xls_output_dir = 'Acts/XLS'
         pdf_output_dir = 'Acts/PDF'
-            
+        
+        if os.path.exists(xls_output_dir):
+            shutil.rmtree(xls_output_dir)
         os.makedirs(xls_output_dir, exist_ok=True)
+        if os.path.exists(pdf_output_dir):
+            shutil.rmtree(pdf_output_dir)
         os.makedirs(pdf_output_dir, exist_ok=True)
+        
         
         try:
             journal_df = pd.read_csv(journal_path, header=None)
@@ -612,61 +619,56 @@ class AOSRApp(QMainWindow):
                         pdf_filename = f"{pdf_output_dir}/{aosr_number}.pdf"
                     
                     
-                    with open(template_path, "rb") as f_template, open(xls_filename, "wb") as f_output:
-                        f_output.write(f_template.read())
-                    
-                    wb = load_workbook(xls_filename)
-                    sheet = wb.active
-                    cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
-                    journal_row_data = journal_df.iloc[row].tolist()
-                    for index, cell in enumerate(cell_mapping):
-                        if cell:
-                            if cell in ['H6', 'D41', 'D42']:
-                                date_str = journal_row_data[index]
-                                formatted_date = datetime.datetime.strptime(date_str, '%m/%d/%Y').strftime('%d.%m.%Y')
-                                sheet[cell] = formatted_date
+                        with open(template_path, "rb") as f_template, open(xls_filename, "wb") as f_output:
+                            f_output.write(f_template.read())
+                        
+                        wb = load_workbook(xls_filename)
+                        sheet = wb.active
+                        cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
+                        journal_row_data = journal_df.iloc[row].tolist()
+                        for index, cell in enumerate(cell_mapping):
+                            if cell:
+                                cell_value = sheet[cell]
+                                current_font_size = cell_value.font.size - 1  # Уменьшение шрифта на 1 пункт
+                                cell_value.font = Font(size=current_font_size)
+                                if cell in ['H6', 'D41', 'D42']:
+                                    date_str = journal_row_data[index]
+                                    formatted_date = datetime.datetime.strptime(date_str, '%m/%d/%Y').strftime('%d.%m.%Y')
+                                    sheet[cell] = formatted_date
+                                elif cell == 'A35':
+                                    new_str = journal_row_data[index].split("; ")
+                                    ddata = ''
+                                    for item in new_str:
+                                        ddata += item
+                                        ddata += '\n'
+                                    sheet[cell] = ddata.strip()
+                                    sheet.row_dimensions[sheet[cell].row].height = 15 * len(new_str)
+                                else:
+                                    sheet[cell] = journal_row_data[index]
+                                sheet[cell].alignment = Alignment(wrapText=True)
+                        
+                        info_mapping = {'A13': 4, 'A16': 7, 'A19': 10, 'A23': 14, 'A25': 16, 'H51': (22, 1), 'H55': (26, 1), 'H58': (29, 1), 'H61': (32, 1)}
+                        for cell, ref in info_mapping.items():
+                            if isinstance(ref, tuple):
+                                sheet[cell] = info_df.iloc[ref[0], ref[1]]
                             else:
-                                sheet[cell] = journal_row_data[index]
-                    
-                    info_mapping = {'A13': 2, 'A16': 5, 'A19': 8, 'A23': 12, 'A25': 14, 'H51': (20, 1), 'H55': (24, 1), 'H58': (27, 1), 'H61': (30, 1)}
-                    for cell, ref in info_mapping.items():
-                        if isinstance(ref, tuple):
-                            sheet[cell] = info_df.iloc[ref[0], ref[1]]
-                        else:
-                            sheet[cell] = info_df.iloc[ref, 0]
-                    
-                    wb.save(xls_filename)
-                    wb.close()
-                    
-                                        
-
-                    workbook = Workbook()
-
-                    
-
-                    workbook.LoadFromFile(xls_filename)
-
-                    
-
-                    for sheet in workbook.Worksheets:
-                        pageSetup = sheet.PageSetup
-                        pageSetup.TopMargin = 0.3
-                        pageSetup.BottomMargin = 0.3
-                        pageSetup.LeftMargin = 0.3
-                        pageSetup.RightMargin = 0.3
-                    workbook.ConverterSetting.SheetFitToPage = True
-
-                    
-
-                    workbook.SaveToFile(pdf_filename, FileFormat.PDF)
-                    workbook.Dispose()
-
+                                sheet[cell] = info_df.iloc[ref, 0]
+                        
+                        wb.save(xls_filename)
+                        wb.close()
+                        
+                        xlApp = client.Dispatch("Excel.Application")
+                        books = xlApp.Workbooks.Open(os.path.abspath(xls_filename))
+                        ws = books.Worksheets[0]
+                        ws.Visible = 1
+                        ws.ExportAsFixedFormat(0, os.path.abspath(pdf_filename))
+                        books.Close()
 
             self.reload_reg()
 
             QMessageBox.information(self, 'Успешно', f'Акты сформированы')
         except Exception as e:
-           QMessageBox.warning(self, 'Ошибка', f'Не удалось сформировать акт')
+           QMessageBox.warning(self, 'Ошибка', f'Не удалось сформировать акт {e}')
             
                 
     def get_selected_mtr_data(self, aosr_row):
