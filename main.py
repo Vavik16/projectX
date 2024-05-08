@@ -329,7 +329,6 @@ class AOSRApp(QMainWindow):
             ('Согласования', 'images/6.png'),
             ('Виды и объемы работ', 'images/5.png'),
             ('Реестр ИД', 'images/4.png'),
-            ('Управление проектами', 'images/7.png'),
         ]
         for name, icon_path in tab_names:
             tab = QWidget()
@@ -363,11 +362,11 @@ class AOSRApp(QMainWindow):
             header_item = self.table.horizontalHeaderItem(column)
             header_item.setToolTip(header_item.text().replace('\n', ' '))  
 
-        
         button_panel = QWidget()
         button_layout = QHBoxLayout()
         button_panel.setLayout(button_layout)
-        
+        self.table.setColumnHidden(1, True)
+        self.table.setColumnHidden(2, True)
         
         btn_create_act = QPushButton('Создать акт')
         btn_create_act.clicked.connect(self.export_to_pdf_and_xls)
@@ -381,7 +380,12 @@ class AOSRApp(QMainWindow):
         btn_select_scheme.clicked.connect(self.open_scheme_selection)
         btn_clear_cell = QPushButton('Очистить ячейку')
         btn_clear_cell.clicked.connect(self.clear_selected_cell)
-        btn_undo = QPushButton('Отменить последнее действие')
+        upload_button = QPushButton(QIcon('images/import.jpeg'), '')
+        upload_button.clicked.connect(self.upload_excel_data)
+
+        download_button = QPushButton(QIcon('images/export.jpeg'), '')
+        download_button.clicked.connect(self.download_csv_data)
+        btn_undo = QPushButton(QIcon('images/reverse.jpeg'), '')
         btn_undo.clicked.connect(self.undo_stack.undo)
         
         button_layout.addWidget(btn_undo)
@@ -391,6 +395,9 @@ class AOSRApp(QMainWindow):
         button_layout.addWidget(btn_select_volume)
         button_layout.addWidget(btn_agreements)
         button_layout.addWidget(btn_select_scheme)
+        button_layout.addWidget(upload_button)
+        button_layout.addWidget(download_button)
+        button_layout.addWidget(btn_undo)
         layout.addWidget(button_panel)
         layout.addWidget(self.table)
 
@@ -438,12 +445,8 @@ class AOSRApp(QMainWindow):
             'Реестр ИД': ['№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
             'Ведомость МТР': ['Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
             'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание'],
-            'Управление проектами': ['']
         }
         for name, headers in tab_configs.items():
-            if name == 'Управление проектами':
-                self.setupProjectManagementTab()
-            else:
                 tab = self.tabs[name]
                 layout = QVBoxLayout()
                 table = QTableWidget(0, len(headers))
@@ -504,20 +507,6 @@ class AOSRApp(QMainWindow):
         for row in range(self.table.rowCount()):
             self.set_default_value(row)
 
-    def setupProjectManagementTab(self):
-        tab = self.tabs['Управление проектами']
-        layout = QVBoxLayout()
-        tab.setLayout(layout)
-
-        # Upload button
-        upload_button = QPushButton('Загрузить')
-        upload_button.clicked.connect(self.upload_excel_data)
-        layout.addWidget(upload_button)
-
-        # Download button
-        download_button = QPushButton('Выгрузить')
-        download_button.clicked.connect(self.download_csv_data)
-        layout.addWidget(download_button)
 
     def upload_excel_data(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Открыть файл", "", "Excel Files (*.xlsx)")
@@ -663,7 +652,7 @@ class AOSRApp(QMainWindow):
                         ws.Visible = 1
                         ws.ExportAsFixedFormat(0, os.path.abspath(pdf_filename))
                         books.Close()
-
+            
             self.reload_reg()
 
             QMessageBox.information(self, 'Успешно', f'Акты сформированы')
