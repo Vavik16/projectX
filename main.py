@@ -9,8 +9,6 @@ from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
 import os
 from openpyxl import load_workbook, Workbook
-from spire.xls import *
-from spire.xls.common import *  
 import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment
