@@ -3,7 +3,7 @@ from win32com import client
 import sys
 import csv
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QUndoCommand, QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
+from PyQt5.QtWidgets import (QComboBox, QUndoCommand, QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
@@ -13,6 +13,14 @@ import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment
 
+class WheelIgnoredComboBox(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+class WheelIgnoredDateEdit(QDateEdit):
+    def wheelEvent(self, event):
+        event.ignore()
+        
 class SchemeSelectionDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -249,7 +257,7 @@ class VolumeSelectionDialog(QtWidgets.QDialog):
                 self.selected_data = new_selection
         
             try:
-                with open('docs/общая_ведомость.csv', 'a+', newline='', encoding='utf-8') as file:
+                with open('docs/вор.csv', 'a+', newline='', encoding='utf-8') as file:
                     writer = csv.writer(file)
                     file.seek(0)
                     reader = csv.reader(file)
@@ -322,7 +330,7 @@ class AOSRApp(QMainWindow):
             ('Журнал АОСР', 'images/2.png'),
             ('Информация', 'images/7.png'),
             ('Ведомость МТР', 'images/1.png'),
-            ('Общая ведомость', 'images/1.png'),
+            ('ВОР', 'images/1.png'),
             ('Исп. схемы', 'images/3.png'),
             ('Согласования', 'images/6.png'),
             ('Виды и объемы работ', 'images/5.png'),
@@ -429,6 +437,73 @@ class AOSRApp(QMainWindow):
                     if col == 7:
                         self.export_work_volume_to_general_ledger()
 
+    
+    def export_registry_to_xls_and_pdf(self):
+        try:
+            # Setup the paths
+            xls_path = 'Acts/XLS/Реестр_ИД.xlsx'
+            pdf_path = 'Acts/PDF/Реестр_ИД.pdf'
+            os.makedirs('Acts/XLS', exist_ok=True)
+            os.makedirs('Acts/PDF', exist_ok=True)
+
+            # Check if the workbook already exists and clear existing data except the header
+            if os.path.exists(xls_path):
+                wb = openpyxl.load_workbook(xls_path)
+                ws = wb.active
+                ws.delete_rows(2, ws.max_row)  # Remove all rows except the header
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.append(['№п/п', '№ акта', 'Наименование', 'Кол-во листов', 'Примечание'])  # Header row
+
+            # Set worksheet title
+            ws.title = "Реестр ИД"
+
+            # Extract data from the table
+            table = self.other_tables['Реестр ИД']
+            row_count = 1  # Starting count for the rows after the header
+
+            # Populate the worksheet with rows from the table
+            for row_index in range(table.rowCount()):
+                row_data = [table.item(row_index, col).text() if table.item(row_index, col) else '' for col in range(table.columnCount())]
+                row_data.insert(0, str(row_count))  # Add row count at the beginning
+                ws.append(row_data)
+                row_count += 1
+
+            # Set fixed column widths
+            ws.column_dimensions['A'].width = 6
+            ws.column_dimensions['B'].width = 12
+            ws.column_dimensions['C'].width = 72
+            ws.column_dimensions['D'].width = 15
+            ws.column_dimensions['E'].width = 15
+
+            ws['C1'].alignment = Alignment(horizontal='center')
+
+            # Adjust the page layout settings to fit all columns on one page
+            ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+            ws.page_setup.fitToWidth = 1
+            ws.page_setup.fitToHeight = 0
+
+            # Save the workbook
+            wb.save(xls_path)
+            wb.close()
+
+            # Convert XLS to PDF using Excel
+            xlApp = client.Dispatch("Excel.Application")
+            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
+            ws = books.Worksheets[0]
+            ws.Visible = 1
+            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+            books.Close()
+            xlApp.Quit()
+
+            QMessageBox.information(self, 'Успех', 'Реестр ИД успешно экспортирован в XLS и PDF.')
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', f'Не удалось экспортировать Реестр ИД: {str(e)}')
+
+
+
+
 
     def open_mtr_selection(self):
         dialog = MTRSelectionDialog(self)
@@ -442,7 +517,7 @@ class AOSRApp(QMainWindow):
             'Виды и объемы работ': ['', 'Ед.изм', 'Номер'],
             'Реестр ИД': ['№ акта', 'Наименование', 'Кол-во листов', 'Примечание'],
             'Ведомость МТР': ['Объект контроля', 'Сертификаты, паспорта и иные документы', '*Акты входного контроля'],
-            'Общая ведомость': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание'],
+            'ВОР': ['Наименование выполненных работ', 'Ед.изм', 'Кол-во', 'Примечание'],
         }
         for name, headers in tab_configs.items():
                 tab = self.tabs[name]
@@ -466,14 +541,24 @@ class AOSRApp(QMainWindow):
 
                 btn_add = QPushButton('Добавить запись')
                 btn_remove = QPushButton('Удалить запись')
-                btn_save = QPushButton('Сохранить записи')
+                
                 btn_add.clicked.connect(lambda checked, t=table: self.add_other_record(t))
                 btn_remove.clicked.connect(lambda checked, t=table: self.remove_other_record(t))
-                btn_save.clicked.connect(lambda: self.save_all_tables())
-
+                
                 button_layout.addWidget(btn_add)
                 button_layout.addWidget(btn_remove)
-                button_layout.addWidget(btn_save)
+
+                if name == "Реестр ИД":
+                    btn_refresh_reg = QPushButton('Обновить реестр')
+                    btn_refresh_reg.clicked.connect(self.reload_reg)
+                    button_layout.addWidget(btn_refresh_reg)
+                    btn_export_reg = QPushButton('Экспорт реестра')
+                    btn_export_reg.clicked.connect(self.export_registry_to_xls_and_pdf)
+                    button_layout.addWidget(btn_export_reg)
+                else:
+                    btn_save = QPushButton('Сохранить записи')
+                    button_layout.addWidget(btn_save)
+                    btn_save.clicked.connect(lambda: self.save_all_tables())
                 layout.addWidget(button_panel)
 
                 self.other_tables[name] = table
@@ -550,10 +635,9 @@ class AOSRApp(QMainWindow):
 
 
     def set_default_value(self, row_index):
-    
         item_8 = QTableWidgetItem('Не применялась')
         item_9 = QTableWidgetItem('Отсутствуют')
-        combo_box_11 = QtWidgets.QComboBox()
+        combo_box_11 = WheelIgnoredComboBox()
         combo_box_11.addItems(['Да', 'Нет'])  
         combo_box_11.setCurrentText('Да')
 
@@ -565,6 +649,22 @@ class AOSRApp(QMainWindow):
         self.table.setItem(row_index, 9, item_8)
         self.table.setItem(row_index, 10, item_9)
         self.table.setCellWidget(row_index, 12, combo_box_11)
+        combo_box_11.currentTextChanged.connect(self.update_registry_on_change)
+
+    def update_registry_on_change(self):
+         with open('docs/реестр_ид.csv', 'w+', newline='', encoding='utf-8') as reg_file:
+                reg_writer = csv.writer(reg_file, quoting=csv.QUOTE_ALL)
+                for row in range(self.table.rowCount()):
+                    if self.table.cellWidget(row, 12) and self.table.cellWidget(row, 12).currentText() == 'Да':
+                        aosr_number = self.table.item(row, 0).text()
+                        column_6_value = self.table.item(row, 6).text() if self.table.item(row, 6) else ''
+                        column_13_value = self.table.item(row, 13).text().split('; ') if self.table.item(row, 13) else ''
+                        reg_writer.writerow([f"АОСР № {aosr_number}", column_6_value, None, None])
+                        for itemss in column_13_value:
+                            reg_writer.writerow(['', itemss, None, None])
+                        selected_mtrs = self.get_selected_mtr_data(row)
+                        for mtr in selected_mtrs:
+                            reg_writer.writerow(['', mtr[2], None, None])
 
     def export_to_pdf_and_xls(self):
         self.save_changes()
@@ -678,8 +778,6 @@ class AOSRApp(QMainWindow):
         ws = wb.active
         ws.title = "Registry Data"
         
-        
-
         headers = ['АОСР №', 'Наименование объекта', 'Документы и сертификаты о качестве', 'Исполнительные схемы']
         ws.append(headers)
         
@@ -688,8 +786,6 @@ class AOSRApp(QMainWindow):
             for row in reader:
                 ws.append(row)
         
-        
-
         output_xlsx_path = 'docs/реестр_ид.xlsx'
         wb.save(output_xlsx_path)
         wb.close()
@@ -710,9 +806,9 @@ class AOSRApp(QMainWindow):
                     for col_index, value in enumerate(row_data):
                         if "Unnamed" in value:
                             value = ""
-                        if col_index in [3, 4, 5]:  
+                        if col_index in [3, 4, 5]:
                             date = QDate.fromString(value, "MM/dd/yyyy") if value else QDate.currentDate()
-                            date_editor = QDateEdit(self)
+                            date_editor = WheelIgnoredDateEdit(self)
                             date_editor.setDate(date)
                             date_editor.setCalendarPopup(True)
                             date_editor.dateChanged.connect(self.create_date_changed_handler(row_index, col_index))
@@ -733,30 +829,32 @@ class AOSRApp(QMainWindow):
                             item.setToolTip(value)
                         if col_index == 9 or col_index == 10:
                             item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable)
+
             for tab_name, table in self.other_tables.items():
-                if tab_name == 'Журнал АОСР':  
-                    continue
-                elif tab_name == 'Информация':
+                if tab_name == 'Информация':
                     self.load_and_display_excel_data()
                     self.load_information_data()
-                else: 
-                    with open(f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv', 'r', encoding='utf-8') as file:
+                else:
+                    file_path = f'docs/{tab_name.lower().replace(" ", "_")}.csv'
+                    with open(file_path, 'r', encoding='utf-8') as file:
                         table.setRowCount(0)
                         reader = csv.reader(file)
-                        for row_index, row_data in enumerate(reader):                        
-                            table.insertRow(row_index)
-                            for col_index, value in enumerate(row_data):
-                                if "Unnamed:" in value:
-                                    value = ""
-                                item = NumericTableWidgetItem(value if value else '')
-                                table.setItem(row_index, col_index, item)
-                                item.setToolTip(value)
-                                table.resizeRowToContents(item.row())
+                        for row_data in reader:
+                            if any(row_data):  # Only add rows that are not entirely empty
+                                row_index = table.rowCount()
+                                table.insertRow(row_index)
+                                for col_index, value in enumerate(row_data):
+                                    if "Unnamed:" in value:
+                                        value = ""
+                                    item = NumericTableWidgetItem(value if value else '')
+                                    table.setItem(row_index, col_index, item)
+                                    item.setToolTip(value)
+                                    table.resizeRowToContents(item.row())
         except FileNotFoundError:
             QMessageBox.warning(self, 'Ошибка', 'Файл данных не найден.')
         finally:
             self.table.itemChanged.connect(self.item_changed)
-            self.table.sortItems(0, QtCore.Qt.AscendingOrder)  
+            self.table.sortItems(0, QtCore.Qt.AscendingOrder)
             self.validate_all_dates()
 
     def load_information_data(self):
@@ -783,23 +881,27 @@ class AOSRApp(QMainWindow):
             QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить информацию: {str(e)}')
 
     def reload_ov(self):
-        with open('docs/общая_ведомость.csv', 'r', encoding='utf-8') as file:
-                reader = csv.reader(file)
-                table = self.other_tables['Общая ведомость']
-                table.setRowCount(0)
-                for row_index, row_data in enumerate(reader):
+        with open('docs/вор.csv', 'r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            table = self.other_tables['ВОР']
+            table.setRowCount(0)
+            for row_index, row_data in enumerate(reader):
+                if any(row_data):  # Check if the row is not entirely empty
                     table.insertRow(row_index)
                     for col_index, value in enumerate(row_data):
                         item = NumericTableWidgetItem(value if value else '')
                         table.setItem(row_index, col_index, item)
                         item.setToolTip(value)
                         table.resizeRowToContents(item.row())
+
     def reload_reg(self):
         with open('docs/реестр_ид.csv', 'r', encoding='utf-8') as file:
-                reader = csv.reader(file)
-                table = self.other_tables['Реестр ИД']
-                table.setRowCount(0)
-                for row_index, row_data in enumerate(reader):
+            reader = csv.reader(file)
+            table = self.other_tables['Реестр ИД']
+            table.setRowCount(0)
+            for row_data in reader:
+                if any(row_data):  # Ensure not to add empty rows
+                    row_index = table.rowCount()
                     table.insertRow(row_index)
                     for col_index, value in enumerate(row_data):
                         item = NumericTableWidgetItem(value if value else '')
@@ -812,6 +914,7 @@ class AOSRApp(QMainWindow):
             self.date_item_changed(row, col, date)
             self.save_changes()
         return handle_date_changed
+
 
     def load_and_display_excel_data(self):
         csv_path = 'docs/информация.csv'
@@ -833,6 +936,8 @@ class AOSRApp(QMainWindow):
                     item.setFlags(Qt.ItemIsEnabled)  
                     if col_index == len(row) - 1 or (col_index == 0 and (index + 1) in editable_rows_first_column):
                         item.setFlags(Qt.ItemIsEditable | Qt.ItemIsEnabled)
+                        if index + 1 in [ 5,8,11,15 ] or col_index==len(row)-1:
+                            item.setTextAlignment(Qt.AlignCenter)
                         item.setBackground(QColor(255, 255, 255))  
                     else:
                         item.setBackground(QColor(240, 240, 240))  
@@ -852,7 +957,7 @@ class AOSRApp(QMainWindow):
         self.update_tooltip(item)
 
     def export_work_volume_to_general_ledger(self):
-        with open('docs/общая_ведомость.csv', 'w', newline='', encoding='utf-8') as file:
+        with open('docs/вор.csv', 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             for row in range(self.table.rowCount()):
                 if len(self.table.item(row, 7).text().split("_")) >= 4:
@@ -918,7 +1023,7 @@ class AOSRApp(QMainWindow):
         self.set_default_value(row_count)
         for col_index in range(1, self.table.columnCount()):
             if col_index in [3, 4, 5]:  
-                date_editor = QDateEdit(self)
+                date_editor = WheelIgnoredDateEdit(self)
                 date_editor.setCalendarPopup(True)
                 date_editor.setDate(QDate.currentDate())
                 date_editor.dateChanged.connect(self.create_date_changed_handler(row_count, col_index))
