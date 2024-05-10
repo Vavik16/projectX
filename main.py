@@ -13,6 +13,33 @@ import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment
 
+class EditDateCommand(QUndoCommand):
+    def __init__(self, date_edit, old_date, new_date):
+        super().__init__()
+        self.date_edit = date_edit
+        self.old_date = old_date
+        self.new_date = new_date
+
+    def redo(self):
+        self.date_edit.setDate(self.new_date)
+
+    def undo(self):
+        self.date_edit.setDate(self.old_date)
+
+class EditComboCommand(QUndoCommand):
+    def __init__(self, combo_box, old_value, new_value):
+        super().__init__()
+        self.combo_box = combo_box
+        self.old_value = old_value
+        self.new_value = new_value
+
+    def redo(self):
+        self.combo_box.setCurrentText(self.new_value)
+
+    def undo(self):
+        self.combo_box.setCurrentText(self.old_value)
+
+
 class WheelIgnoredComboBox(QComboBox):
     def wheelEvent(self, event):
         event.ignore()
@@ -354,7 +381,7 @@ class AOSRApp(QMainWindow):
         
         self.table.setHorizontalHeaderLabels([
             'Номер\nАОСР', 'Город\nстроительства', 'Наименование\n объекта', 'Дата\nначала\nработ', 'Дата\nокончания\nработ',
-            'Дата подписания\nакта', '1. К\nосвидетельствованию\nпредъявлены работы', 'Вид и\nобъём\nработ\n(выгрузка ведомости)',
+            'Дата подписания\nакта', '1. К\nосвидетельствованию\nпредъявлены\nработы', 'Вид и\nобъём\nработ\n(выгрузка ведомости)',
             'Работы выполнены\nпо\nпроектно-сметной\nдок.', 'При\nвыполнении работ\nприменены', 'При\nвыполнении работ\nотклонения',
             'Разрешается\nдля\nпроизводства работ', 'Сформировать\nакт', 'Исполнительная\nсхема'
         ])
@@ -394,7 +421,10 @@ class AOSRApp(QMainWindow):
         btn_undo = QPushButton(QIcon('images/reverse.jpeg'), '')
         btn_undo.clicked.connect(self.undo_stack.undo)
         
-        button_layout.addWidget(btn_undo)
+        new_button = QPushButton(QIcon('images/new.jpeg'), '')
+        new_button.clicked.connect(self.new_project)
+
+        button_layout.addWidget(new_button)
         button_layout.addWidget(btn_create_act)
         button_layout.addWidget(btn_clear_cell)
         button_layout.addWidget(btn_select_mtr)
@@ -415,6 +445,26 @@ class AOSRApp(QMainWindow):
         layout.addWidget(btn_add)
         layout.addWidget(btn_remove)
     
+    def new_project(self):
+        try:
+            # Step 1: Clear CSV files by writing empty data with headers only
+            folder_path = 'docs/'
+            files = os.listdir(folder_path)
+            csv_files = [f for f in files if f.endswith('.csv')]
+            for file_name in csv_files:
+                with open(f'{folder_path}{file_name}', 'w', newline='', encoding='utf-8') as file:
+                    pass
+
+            # Step 2: Reset Application Tables
+            for table_name, table in self.other_tables.items():
+                table.setRowCount(0)  # Clear the table
+
+            self.table.setRowCount(0)  # Clear the main table
+
+            QMessageBox.information(self, 'Успех', 'Проект успешно создан.')
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', f'Не удалось создать проект: {str(e)}')
+    
     def capture_change(self, item):
         # On cell change, push an edit command to the undo stack
         old_value = item.data(QtCore.Qt.UserRole)  # UserRole used to store old value
@@ -425,6 +475,8 @@ class AOSRApp(QMainWindow):
             command = EditCellCommand(self.table, item.row(), item.column(), old_value, new_value)
             self.undo_stack.push(command)
         item.setData(QtCore.Qt.UserRole, new_value)  # Update the UserRole with new value
+
+
 
     def clear_selected_cell(self):
         selected_items = self.table.selectedItems()
@@ -500,7 +552,69 @@ class AOSRApp(QMainWindow):
             QMessageBox.information(self, 'Успех', 'Реестр ИД успешно экспортирован в XLS и PDF.')
         except Exception as e:
             QMessageBox.warning(self, 'Ошибка', f'Не удалось экспортировать Реестр ИД: {str(e)}')
+    
+    def export_vor_to_xls_and_pdf(self):
+        try:
+            # Setup the paths
+            xls_path = 'Acts/XLS/Ведомость_объёмов_работ.xlsx'
+            pdf_path = 'Acts/PDF/Ведомость_объёмов_работ.pdf'
+            os.makedirs('Acts/XLS', exist_ok=True)
+            os.makedirs('Acts/PDF', exist_ok=True)
 
+            # Check if the workbook already exists and clear existing data except the header
+            if os.path.exists(xls_path):
+                wb = openpyxl.load_workbook(xls_path)
+                ws = wb.active
+                ws.delete_rows(2, ws.max_row)  # Remove all rows except the header
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.append(['№п/п', 'Наименование выполненных работ', 'Ед. изм', 'Кол-во', 'Примечание'])  # Header row
+
+            # Set worksheet title
+            ws.title = "ВОР"
+
+            # Extract data from the table
+            table = self.other_tables['ВОР']
+            row_count = 1  # Starting count for the rows after the header
+
+            # Populate the worksheet with rows from the table
+            for row_index in range(table.rowCount()):
+                row_data = [table.item(row_index, col).text() if table.item(row_index, col) else '' for col in range(table.columnCount())]
+                row_data.insert(0, str(row_count))  # Add row count at the beginning
+                ws.append(row_data)
+                row_count += 1
+
+            # Set fixed column widths
+            ws.column_dimensions['A'].width = 6
+            ws.column_dimensions['B'].width = 72
+            ws.column_dimensions['C'].width = 10
+            ws.column_dimensions['D'].width = 10
+            ws.column_dimensions['E'].width = 15
+
+            ws['B1'].alignment = Alignment(horizontal='center')
+
+            # Adjust the page layout settings to fit all columns on one page
+            ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+            ws.page_setup.fitToWidth = 1
+            ws.page_setup.fitToHeight = 0
+
+            # Save the workbook
+            wb.save(xls_path)
+            wb.close()
+
+            # Convert XLS to PDF using Excel
+            xlApp = client.Dispatch("Excel.Application")
+            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
+            ws = books.Worksheets[0]
+            ws.Visible = 1
+            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+            books.Close()
+            xlApp.Quit()
+
+            QMessageBox.information(self, 'Успех', 'ВОР успешно экспортирован в XLS и PDF.')
+        except Exception as e:
+            QMessageBox.warning(self, 'Ошибка', f'Не удалось экспортировать ВОР: {str(e)}')
 
 
 
@@ -554,6 +668,10 @@ class AOSRApp(QMainWindow):
                     button_layout.addWidget(btn_refresh_reg)
                     btn_export_reg = QPushButton('Экспорт реестра')
                     btn_export_reg.clicked.connect(self.export_registry_to_xls_and_pdf)
+                    button_layout.addWidget(btn_export_reg)
+                if name == 'ВОР':
+                    btn_export_reg = QPushButton('Экспорт ведомости')
+                    btn_export_reg.clicked.connect(self.export_vor_to_xls_and_pdf)
                     button_layout.addWidget(btn_export_reg)
                 else:
                     btn_save = QPushButton('Сохранить записи')
@@ -640,7 +758,7 @@ class AOSRApp(QMainWindow):
         combo_box_11 = WheelIgnoredComboBox()
         combo_box_11.addItems(['Да', 'Нет'])  
         combo_box_11.setCurrentText('Да')
-
+        combo_box_11.setProperty('oldValue', combo_box_11.currentText())
         
         item_8.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
         item_9.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
@@ -649,10 +767,10 @@ class AOSRApp(QMainWindow):
         self.table.setItem(row_index, 9, item_8)
         self.table.setItem(row_index, 10, item_9)
         self.table.setCellWidget(row_index, 12, combo_box_11)
-        combo_box_11.currentTextChanged.connect(self.update_registry_on_change)
+        combo_box_11.currentTextChanged.connect(lambda new_value, box=combo_box_11: self.update_registry_on_change(box, new_value))
 
-    def update_registry_on_change(self):
-         with open('docs/реестр_ид.csv', 'w+', newline='', encoding='utf-8') as reg_file:
+    def update_registry_on_change(self, combo_box, new_value):
+        with open('docs/реестр_ид.csv', 'w+', newline='', encoding='utf-8') as reg_file:
                 reg_writer = csv.writer(reg_file, quoting=csv.QUOTE_ALL)
                 for row in range(self.table.rowCount()):
                     if self.table.cellWidget(row, 12) and self.table.cellWidget(row, 12).currentText() == 'Да':
@@ -665,6 +783,11 @@ class AOSRApp(QMainWindow):
                         selected_mtrs = self.get_selected_mtr_data(row)
                         for mtr in selected_mtrs:
                             reg_writer.writerow(['', mtr[2], None, None])
+        old_value = combo_box.property('oldValue') or combo_box.currentText()  # Initialize the old value if not set
+        if old_value != new_value:
+            command = EditComboCommand(combo_box, old_value, new_value)
+            self.undo_stack.push(command)
+        combo_box.setProperty('oldValue', new_value)  # Update the old value property
 
     def export_to_pdf_and_xls(self):
         self.save_changes()
@@ -674,6 +797,7 @@ class AOSRApp(QMainWindow):
         registry_path = 'docs/реестр_ид.csv'
         xls_output_dir = 'Acts/XLS'
         pdf_output_dir = 'Acts/PDF'
+        default_font = Font(name='Times New Roman', size=11)
         
         if os.path.exists(xls_output_dir):
             shutil.rmtree(xls_output_dir)
@@ -711,6 +835,11 @@ class AOSRApp(QMainWindow):
                         
                         wb = load_workbook(xls_filename)
                         sheet = wb.active
+
+                        for row in sheet.iter_rows():
+                            for cell in row:
+                                cell.font = default_font
+
                         cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
                         journal_row_data = journal_df.iloc[row].tolist()
                         for index, cell in enumerate(cell_mapping):
@@ -810,8 +939,9 @@ class AOSRApp(QMainWindow):
                             date = QDate.fromString(value, "MM/dd/yyyy") if value else QDate.currentDate()
                             date_editor = WheelIgnoredDateEdit(self)
                             date_editor.setDate(date)
+                            date_editor.setProperty('oldDate', date_editor.date())
                             date_editor.setCalendarPopup(True)
-                            date_editor.dateChanged.connect(self.create_date_changed_handler(row_index, col_index))
+                            date_editor.dateChanged.connect(lambda new_date, editor=date_editor, row=row_index, col=col_index: self.create_date_changed_handler(editor, row, col)(new_date))
                             self.table.setCellWidget(row_index, col_index, date_editor)
                         if col_index == 12:
                             combo_box = self.table.cellWidget(row_index, 12)
@@ -854,6 +984,8 @@ class AOSRApp(QMainWindow):
             QMessageBox.warning(self, 'Ошибка', 'Файл данных не найден.')
         finally:
             self.table.itemChanged.connect(self.item_changed)
+            for _, tables in self.other_tables.items():
+                tables.itemChanged.connect(self.item_changed)
             self.table.sortItems(0, QtCore.Qt.AscendingOrder)
             self.validate_all_dates()
 
@@ -909,12 +1041,21 @@ class AOSRApp(QMainWindow):
                         item.setToolTip(value)
                         table.resizeRowToContents(item.row())
 
-    def create_date_changed_handler(self, row, col):
-        def handle_date_changed(date):
-            self.date_item_changed(row, col, date)
-            self.save_changes()
+    def create_date_changed_handler(self, editor, row, col):
+        def handle_date_changed(new_date):
+            old_date = editor.property('oldDate') if editor.property('oldDate') is not None else editor.date()
+            if old_date != new_date:
+                command = EditDateCommand(editor, old_date, new_date)
+                self.undo_stack.push(command)
+            editor.setProperty('oldDate', new_date)  # Update the old date after pushing to undo stack
+            self.save_changes()  # Save changes if necessary
         return handle_date_changed
 
+
+    def resize_table_to_contents(self, table):
+        table.resizeRowsToContents()
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Stretch)
 
     def load_and_display_excel_data(self):
         csv_path = 'docs/информация.csv'
@@ -953,7 +1094,8 @@ class AOSRApp(QMainWindow):
 
     def item_changed(self, item):
         self.row_modified[item.row()] = True
-        self.table.resizeRowToContents(item.row())
+        for _, items in self.other_tables.items():
+            self.resize_table_to_contents(items)
         self.update_tooltip(item)
 
     def export_work_volume_to_general_ledger(self):
@@ -1026,7 +1168,8 @@ class AOSRApp(QMainWindow):
                 date_editor = WheelIgnoredDateEdit(self)
                 date_editor.setCalendarPopup(True)
                 date_editor.setDate(QDate.currentDate())
-                date_editor.dateChanged.connect(self.create_date_changed_handler(row_count, col_index))
+                date_editor.dateChanged.connect(lambda new_date, editor=date_editor, row=row_count, col=col_index: self.create_date_changed_handler(editor, row, col)(new_date))
+                date_editor.setProperty('oldDate', date_editor.date())
                 self.table.setCellWidget(row_count, col_index, date_editor)
             else:
                 item = NumericTableWidgetItem('')
