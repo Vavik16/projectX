@@ -342,11 +342,12 @@ class AOSRApp(QMainWindow):
         super().__init__()
         self.undo_stack = QtWidgets.QUndoStack(self)
         self.row_modified = {}
+        self.main_table = 0
         self.initUI()
         
 
     def initUI(self):
-        self.setWindowTitle('Журнал АОСР')
+        self.setWindowTitle('АОСР - Журнал АОСР')
         self.setGeometry(100, 100, 800, 600)
         self.tab_widget = QTabWidget(self)
         self.tab_widget.setTabPosition(QTabWidget.South)
@@ -371,8 +372,9 @@ class AOSRApp(QMainWindow):
         self.setupJournalAOSRTab()
         self.setupOtherTabs()
         self.load_table_data()
-
-        self.table.itemChanged.connect(self.item_changed)
+        
+        self.tab_widget.currentChanged.connect(self.tab_changed)
+        self.table.itemChanged.connect(lambda item, table=self.table: self.item_changed(item, table))
 
     def setupJournalAOSRTab(self):
         layout = QVBoxLayout()
@@ -437,13 +439,14 @@ class AOSRApp(QMainWindow):
         layout.addWidget(button_panel)
         layout.addWidget(self.table)
 
-        self.table.itemChanged.connect(self.item_changed)
+        self.table.itemChanged.connect(lambda item, table=self.table: self.item_changed(item, table))
         btn_add = QPushButton('Добавить запись')
         btn_remove = QPushButton('Удалить запись')
         btn_add.clicked.connect(self.add_record)
         btn_remove.clicked.connect(self.remove_record)
         layout.addWidget(btn_add)
         layout.addWidget(btn_remove)
+        self.main_table = self.table
     
     def new_project(self):
         try:
@@ -670,13 +673,16 @@ class AOSRApp(QMainWindow):
                     btn_export_reg.clicked.connect(self.export_registry_to_xls_and_pdf)
                     button_layout.addWidget(btn_export_reg)
                 if name == 'ВОР':
+                    btn_refresh_reg = QPushButton('Обновить ведомость')
+                    btn_refresh_reg.clicked.connect(self.reload_ov)
+                    button_layout.addWidget(btn_refresh_reg)
                     btn_export_reg = QPushButton('Экспорт ведомости')
                     btn_export_reg.clicked.connect(self.export_vor_to_xls_and_pdf)
                     button_layout.addWidget(btn_export_reg)
                 else:
                     btn_save = QPushButton('Сохранить записи')
                     button_layout.addWidget(btn_save)
-                    btn_save.clicked.connect(lambda: self.save_all_tables())
+                    btn_save.clicked.connect(self.save_table_data)
                 layout.addWidget(button_panel)
 
                 self.other_tables[name] = table
@@ -783,6 +789,7 @@ class AOSRApp(QMainWindow):
                         selected_mtrs = self.get_selected_mtr_data(row)
                         for mtr in selected_mtrs:
                             reg_writer.writerow(['', mtr[2], None, None])
+        self.export_work_volume_to_general_ledger()
         old_value = combo_box.property('oldValue') or combo_box.currentText()  # Initialize the old value if not set
         if old_value != new_value:
             command = EditComboCommand(combo_box, old_value, new_value)
@@ -836,17 +843,12 @@ class AOSRApp(QMainWindow):
                         wb = load_workbook(xls_filename)
                         sheet = wb.active
 
-                        for row in sheet.iter_rows():
-                            for cell in row:
-                                cell.font = default_font
-
                         cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
                         journal_row_data = journal_df.iloc[row].tolist()
                         for index, cell in enumerate(cell_mapping):
                             if cell:
                                 cell_value = sheet[cell]
-                                current_font_size = cell_value.font.size - 1  # Уменьшение шрифта на 1 пункт
-                                cell_value.font = Font(size=current_font_size)
+                                cell_value.font = default_font
                                 if cell in ['H6', 'D41', 'D42']:
                                     date_str = journal_row_data[index]
                                     formatted_date = datetime.datetime.strptime(date_str, '%m/%d/%Y').strftime('%d.%m.%Y')
@@ -862,6 +864,7 @@ class AOSRApp(QMainWindow):
                                 else:
                                     sheet[cell] = journal_row_data[index]
                                 sheet[cell].alignment = Alignment(wrapText=True)
+                                sheet[cell].font = default_font
                         
                         info_mapping = {'A13': 4, 'A16': 7, 'A19': 10, 'A23': 14, 'A25': 16, 'H51': (22, 1), 'H55': (26, 1), 'H58': (29, 1), 'H61': (32, 1)}
                         for cell, ref in info_mapping.items():
@@ -924,7 +927,11 @@ class AOSRApp(QMainWindow):
         self.setWindowTitle(f'АОСР - {tab_name}')
 
     def load_table_data(self):
-        self.table.itemChanged.disconnect(self.item_changed)
+        try:
+            self.table.itemChanged.disconnect(self.item_changed)
+        except TypeError:
+            # Слот уже отключен или не был подключен
+            pass
         try:
             with open('docs/журнал_аоср.csv', 'r', encoding='utf-8') as file:
                 self.table.setRowCount(0)
@@ -983,9 +990,9 @@ class AOSRApp(QMainWindow):
         except FileNotFoundError:
             QMessageBox.warning(self, 'Ошибка', 'Файл данных не найден.')
         finally:
-            self.table.itemChanged.connect(self.item_changed)
+            self.table.itemChanged.connect(lambda item, table=self.table: self.item_changed(item, table))
             for _, tables in self.other_tables.items():
-                tables.itemChanged.connect(self.item_changed)
+                tables.itemChanged.connect(lambda item, table=tables: self.item_changed(item, table))
             self.table.sortItems(0, QtCore.Qt.AscendingOrder)
             self.validate_all_dates()
 
@@ -1018,13 +1025,13 @@ class AOSRApp(QMainWindow):
             table = self.other_tables['ВОР']
             table.setRowCount(0)
             for row_index, row_data in enumerate(reader):
-                if any(row_data):  # Check if the row is not entirely empty
-                    table.insertRow(row_index)
-                    for col_index, value in enumerate(row_data):
-                        item = NumericTableWidgetItem(value if value else '')
-                        table.setItem(row_index, col_index, item)
-                        item.setToolTip(value)
-                        table.resizeRowToContents(item.row())
+                    if any(row_data):  # Check if the row is not entirely empty
+                        table.insertRow(row_index)
+                        for col_index, value in enumerate(row_data):
+                            item = NumericTableWidgetItem(value if value else '')
+                            table.setItem(row_index, col_index, item)
+                            item.setToolTip(value)
+                            table.resizeRowToContents(item.row())
 
     def reload_reg(self):
         with open('docs/реестр_ид.csv', 'r', encoding='utf-8') as file:
@@ -1051,11 +1058,6 @@ class AOSRApp(QMainWindow):
             self.save_changes()  # Save changes if necessary
         return handle_date_changed
 
-
-    def resize_table_to_contents(self, table):
-        table.resizeRowsToContents()
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Stretch)
 
     def load_and_display_excel_data(self):
         csv_path = 'docs/информация.csv'
@@ -1092,22 +1094,24 @@ class AOSRApp(QMainWindow):
         self.row_modified[row] = True
         self.validate_date(row, column)
 
-    def item_changed(self, item):
+    def item_changed(self, item, table):
         self.row_modified[item.row()] = True
-        for _, items in self.other_tables.items():
-            self.resize_table_to_contents(items)
+        table.resizeRowToContents(item.row())
         self.update_tooltip(item)
 
     def export_work_volume_to_general_ledger(self):
         with open('docs/вор.csv', 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             for row in range(self.table.rowCount()):
-                if len(self.table.item(row, 7).text().split("_")) >= 4:
-                    for item in self.table.item(row, 7).text().split("; "):
-                        work_volume_data = item.split("_")
-                        writer.writerow([work_volume_data[1], work_volume_data[3], work_volume_data[2], row+1])
+                if self.table.cellWidget(row, 12) and self.table.cellWidget(row, 12).currentText() == 'Да':
+                    if len(self.table.item(row, 7).text().split("_")) >= 4:
+                        for item in self.table.item(row, 7).text().split("; "):
+                            work_volume_data = item.split("_")
+                            writer.writerow([work_volume_data[1], work_volume_data[3], work_volume_data[2], self.table.item(row, 0).text()])
+                    else:
+                        writer.writerow("")
                 else:
-                    writer.writerow("")
+                    pass
         self.reload_ov()
 
     def update_tooltip(self, item):
@@ -1186,13 +1190,9 @@ class AOSRApp(QMainWindow):
         current_row = self.table.currentRow()
         if current_row != -1:
             self.table.removeRow(current_row)
-            self.save_all_tables()
+            self.save_changes()
         else:
             QMessageBox.warning(self, 'Ошибка', 'Выберите строку для удаления')
-
-    def tab_changed(self, index):
-        tab_name = self.tab_widget.tabText(index)
-        self.setWindowTitle(f'АОСР - {tab_name}')
 
     def validate_date(self, row, column):
         date_editor = self.table.cellWidget(row, column)
@@ -1245,7 +1245,10 @@ class AOSRApp(QMainWindow):
                         row_data.append(text)
                 writer.writerow(row_data)
 
-    def save_table_data(self, table, filename):
+    def save_table_data(self):
+        name = self.windowTitle()[7:]
+        table = self.other_tables[name]
+        filename = f"docs/{name.lower().replace(' ', '_')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file, quoting=csv.QUOTE_ALL) 
             for row in range(table.rowCount()):
@@ -1255,20 +1258,6 @@ class AOSRApp(QMainWindow):
                     text = item.text() if item else ""
                     row_data.append(text)
                 writer.writerow(row_data)
-
-    def save_all_tables(self):
-        try:
-            for tab_name in self.tabs:
-                if tab_name == 'Журнал АОСР':
-                    self.save_changes()
-                elif tab_name in self.other_tables:
-                    table = self.other_tables[tab_name]
-                    filename = f'{'docs/' + tab_name.lower().replace(" ", "_")}.csv'
-                    self.save_table_data(table, filename)
-            self.load_table_data()
-        except Exception as e:
-            QMessageBox.warning(self, 'Ошибка', 'Не удалось сохранить изменения.')        
-
     
     def open_volume_selection(self):
         selected_row = self.table.currentRow()
