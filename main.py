@@ -3,7 +3,7 @@ from win32com import client
 import sys
 import csv
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtWidgets import (QComboBox, QUndoCommand, QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
+from PyQt5.QtWidgets import (QComboBox, QCheckBox, QUndoCommand, QFileDialog, QHBoxLayout, QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem, QMessageBox, QDateEdit, QHeaderView)
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QIcon
 import pandas as pd
@@ -343,6 +343,7 @@ class AOSRApp(QMainWindow):
         self.undo_stack = QtWidgets.QUndoStack(self)
         self.row_modified = {}
         self.main_table = 0
+        self.current_region = 'информация_кз'
         self.initUI()
         
 
@@ -651,7 +652,15 @@ class AOSRApp(QMainWindow):
 
                 tab.setLayout(layout)
                 layout.addWidget(table)
-
+                
+                if name == 'Информация':
+                    self.chkRF = QCheckBox("РФ")
+                    self.chkKZ = QCheckBox("КЗ")
+                    self.chkKZ.setChecked(True)
+                    self.chkRF.toggled.connect(lambda: self.onRegionChanged('информация_рф'))
+                    self.chkKZ.toggled.connect(lambda: self.onRegionChanged('информация_кз'))
+                    layout.addWidget(self.chkRF)
+                    layout.addWidget(self.chkKZ)
                 button_panel = QWidget()
                 button_layout = QHBoxLayout()
                 button_panel.setLayout(button_layout)
@@ -687,6 +696,15 @@ class AOSRApp(QMainWindow):
 
                 self.other_tables[name] = table
 
+    def onRegionChanged(self, region):
+        if region == 'информация_рф' and self.chkRF.isChecked():
+            self.chkKZ.setChecked(False)
+            self.current_region = 'информация_рф'
+        elif region == 'информация_кз' and self.chkKZ.isChecked():
+            self.chkRF.setChecked(False)
+            self.current_region = 'информация_кз'
+        self.load_information_data()
+        self.load_and_display_excel_data()
 
     def add_other_record(self, table):
         row_count = table.rowCount()
@@ -719,14 +737,15 @@ class AOSRApp(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "Открыть файл", "", "Excel Files (*.xlsx)")
         if file_path:
             try:
-                wb = load_workbook(file_path, data_only=True)  # Ensure formulas are not read but their values
+                wb = load_workbook(file_path, data_only=True)
                 for sheet_name in wb.sheetnames:
                     sheet = wb[sheet_name]
-                    # Directly creating DataFrame from the Excel sheet
+                    # Create DataFrame while preserving empty columns
                     data = pd.DataFrame(sheet.values)
-                    headers = data.iloc[0]  # Assuming the first row is the header
-                    data = data[1:]  # Remove the header row from the data
-                    data.columns = headers  # Set the header row as the DataFrame column names
+                    headers = data.iloc[0]
+                    data = data[1:]
+                    data.columns = headers
+                    data = data.reindex(columns=headers)  # Ensure empty columns are included
 
                     csv_path = f"docs/{sheet_name}.csv"
                     data.to_csv(csv_path, index=False, header=True, encoding='utf-8')
@@ -736,24 +755,29 @@ class AOSRApp(QMainWindow):
                 QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить данные: {str(e)}')
 
     def download_csv_data(self):
+        self.save_changes()
         folder_path = 'docs/'
         files = os.listdir(folder_path)
         csv_files = [f for f in files if f.endswith('.csv')]
         
         wb = openpyxl.Workbook()
-        wb.remove(wb.active)  # Remove the default sheet
+        wb.remove(wb.active)
 
         for file_name in csv_files:
-            data = pd.read_csv(f'{folder_path}{file_name}')
-            ws = wb.create_sheet(title=file_name.replace('.csv', ''))
+            try:
+                data = pd.read_csv(f'{folder_path}{file_name}', keep_default_na=False)  # Load CSV preserving empty columns
+                ws = wb.create_sheet(title=file_name.replace('.csv', ''))
 
-            for col_num, col_name in enumerate(data.columns, start=1):
-                ws.cell(row=1, column=col_num, value=col_name)
-            
-            for row_num, row in enumerate(data.itertuples(index=False, name=None), start=2):
-                for col_num, item in enumerate(row, start=1):   
-                    ws.cell(row=row_num, column=col_num, value=item)
+                for col_num, col_name in enumerate(data.columns, start=1):
+                    ws.cell(row=1, column=col_num, value=col_name)
+                
+                for row_num, row in enumerate(data.itertuples(index=False, name=None), start=2):
+                    for col_num, item in enumerate(row, start=1):
+                        ws.cell(row=row_num, column=col_num, value=item)
         
+            except Exception as e:
+                pass
+            
         wb.save('docs/project.xlsx')
         QMessageBox.information(self, 'Успех', 'Все данные выгружены в Excel файл project.xlsx.')
 
@@ -799,20 +823,19 @@ class AOSRApp(QMainWindow):
     def export_to_pdf_and_xls(self):
         self.save_changes()
         journal_path = 'docs/журнал_аоср.csv'
-        info_path = 'docs/информация.csv'
-        template_path = 'docs/blank.xlsx'
+        info_path = f'docs/{self.current_region}.csv'
+        template_path = 'docs/blank_kz.xlsx' if self.current_region == 'информация_кз' else 'docs/blank_ru.xlsx'
         registry_path = 'docs/реестр_ид.csv'
         xls_output_dir = 'Acts/XLS'
         pdf_output_dir = 'Acts/PDF'
         default_font = Font(name='Times New Roman', size=11)
-        
+            
         if os.path.exists(xls_output_dir):
             shutil.rmtree(xls_output_dir)
         os.makedirs(xls_output_dir, exist_ok=True)
         if os.path.exists(pdf_output_dir):
             shutil.rmtree(pdf_output_dir)
         os.makedirs(pdf_output_dir, exist_ok=True)
-        
         
         try:
             journal_df = pd.read_csv(journal_path, header=None)
@@ -836,24 +859,24 @@ class AOSRApp(QMainWindow):
                         xls_filename = f"{xls_output_dir}/{aosr_number}.xlsx"
                         pdf_filename = f"{pdf_output_dir}/{aosr_number}.pdf"
                     
-                    
                         with open(template_path, "rb") as f_template, open(xls_filename, "wb") as f_output:
                             f_output.write(f_template.read())
                         
                         wb = load_workbook(xls_filename)
                         sheet = wb.active
-
-                        cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None]
+                        cell_mapping = ['F3', 'A6', 'A8', 'D41', 'D42', 'H6', 'A29', None, 'A32', 'A35', 'A39', 'A47', None, None] if self.current_region == 'информация_кз' else ['B29', None, 'A3', 'E84', 'E85', 'H29', 'A67', None, 'A71', 'A76', 'A88', 'A94', 'A102']
                         journal_row_data = journal_df.iloc[row].tolist()
                         for index, cell in enumerate(cell_mapping):
                             if cell:
                                 cell_value = sheet[cell]
                                 cell_value.font = default_font
-                                if cell in ['H6', 'D41', 'D42']:
+                                date_cells = ['H6', 'D41', 'D42'] if self.current_region == 'информация_кз' else ['E84', 'E85', 'H29']
+                                useful_cells = ['A35'] if self.current_region == 'информация_кз' else ['A71']
+                                if cell in date_cells:
                                     date_str = journal_row_data[index]
                                     formatted_date = datetime.datetime.strptime(date_str, '%m/%d/%Y').strftime('%d.%m.%Y')
                                     sheet[cell] = formatted_date
-                                elif cell == 'A35':
+                                elif cell in useful_cells:
                                     new_str = journal_row_data[index].split("; ")
                                     ddata = ''
                                     for item in new_str:
@@ -861,12 +884,37 @@ class AOSRApp(QMainWindow):
                                         ddata += '\n'
                                     sheet[cell] = ddata.strip()
                                     sheet.row_dimensions[sheet[cell].row].height = 15 * len(new_str)
+                                elif cell == 'A102':
+                                    ddata = ''
+                                    for item in journal_row_data[9].split("; "):
+                                        last_str = item.split(' - ')
+                                        if len(last_str) == 2:
+                                            ddata += last_str[1]
+                                            ddata += '\n'
+                                    new_str = journal_row_data[-1].split("; ")
+                                    for item in new_str:
+                                        ddata += item
+                                        ddata += '\n'
+                                    sheet[cell] = ddata.strip()
+                                    sheet.row_dimensions[sheet[cell].row].height = 15 * (len(new_str) + len(journal_row_data[9].split("; ")))
+                                elif cell == 'A88':
+                                    ddata = ''
+                                    new_str = journal_row_data[-1].split("; ")
+                                    for item in new_str:
+                                        ddata += item
+                                        ddata += '\n'
+                                    sheet[cell] = ddata.strip()
+                                    sheet['A71'] = ddata.strip()
+                                    sheet.row_dimensions[sheet['A71'].row].height = 15 * len(new_str)
+                                    sheet['A80'] = ddata.strip()
+                                    sheet.row_dimensions[sheet['A80'].row].height = 15 * len(new_str)
+                                    sheet.row_dimensions[sheet[cell].row].height = 15 * len(new_str)
                                 else:
                                     sheet[cell] = journal_row_data[index]
                                 sheet[cell].alignment = Alignment(wrapText=True)
                                 sheet[cell].font = default_font
                         
-                        info_mapping = {'A13': 4, 'A16': 7, 'A19': 10, 'A23': 14, 'A25': 16, 'H51': (22, 1), 'H55': (26, 1), 'H58': (29, 1), 'H61': (32, 1)}
+                        info_mapping = {'A13': 4, 'A16': 7, 'A19': 10, 'A23': 14, 'A25': 16, 'H51': (22, 1), 'H55': (26, 1), 'H58': (29, 1), 'H61': (32, 1)} if self.current_region == 'информация_кз' else {'A6': 6, 'A8': 7, 'A10': 8, 'A13': 11, 'A15': 12, 'A17': 13, 'A20': 16, 'A22': 17, 'A24': 18, 'A33': 21, 'A35': 22, 'A37': 23, 'A40': 26, 'A44': 29, 'A46': 30, 'A49': 33, 'A51': 34, 'A53': 35, 'A56': 38, 'A58': 39, 'A63': 41, 'C99': (43, 1), 'B109': (47, 1), 'B114': (50, 1), 'B120': (54, 1), 'B127': (57, 1), 'B134': (60, 1)}
                         for cell, ref in info_mapping.items():
                             if isinstance(ref, tuple):
                                 sheet[cell] = info_df.iloc[ref[0], ref[1]]
@@ -886,6 +934,7 @@ class AOSRApp(QMainWindow):
             self.reload_reg()
 
             QMessageBox.information(self, 'Успешно', f'Акты сформированы')
+            
         except Exception as e:
            QMessageBox.warning(self, 'Ошибка', f'Не удалось сформировать акт {e}')
             
@@ -998,10 +1047,11 @@ class AOSRApp(QMainWindow):
 
     def load_information_data(self):
         """ Load the first two rows from информация.csv and set them as values for the 2nd and 3rd columns in the AOSR journal table. """
+        csv_path = f'docs/{self.current_region}.csv'
         try:
-            with open('docs/информация.csv', 'r', encoding='utf-8') as file:
+            with open(csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.reader(file)
-                info_data = list(reader)[:2]  # Read only the first two rows
+                info_data = list(reader)[:4]  # Read only the first two rows
 
                 for row_index in range(self.table.rowCount()):
                     # Ensure the table has enough rows to receive the data
@@ -1013,11 +1063,11 @@ class AOSRApp(QMainWindow):
                     self.table.setItem(row_index, 1, QTableWidgetItem(city_data))
 
                     # Update the 3rd column with the second row of CSV data, if available
-                    object_name_data = info_data[1][0]
+                    object_name_data = info_data[3][0]
                     self.table.setItem(row_index, 2, QTableWidgetItem(object_name_data))
 
         except Exception as e:
-            QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить информацию: {str(e)}')
+            pass
 
     def reload_ov(self):
         with open('docs/вор.csv', 'r', encoding='utf-8') as file:
@@ -1060,16 +1110,17 @@ class AOSRApp(QMainWindow):
 
 
     def load_and_display_excel_data(self):
-        csv_path = 'docs/информация.csv'
+        csv_path = f'docs/{self.current_region}.csv'
         try:
+            table = self.other_tables['Информация']
+            table.setRowCount(0)
             data_frame = pd.read_csv(csv_path, header=None)
             data_frame = data_frame.fillna('')  
             
-            table = self.other_tables['Информация']
             table.setRowCount(len(data_frame.index))
             table.setColumnCount(len(data_frame.columns))
             table.horizontalHeader().setVisible(False)  
-            editable_rows_first_column = {1, 2, 5, 8, 11, 15, 17}
+            editable_rows_first_column = {1, 2, 5, 8, 11, 15, 17} if self.current_region == 'информация_кз' else {1,4,7,8,9,12,13,14,17,18,19,22,23,24,27,30,31,34,35,36,39,40,42}
             
             for index, row in data_frame.iterrows():
                 for col_index, value in enumerate(row):
@@ -1079,8 +1130,9 @@ class AOSRApp(QMainWindow):
                     item.setFlags(Qt.ItemIsEnabled)  
                     if col_index == len(row) - 1 or (col_index == 0 and (index + 1) in editable_rows_first_column):
                         item.setFlags(Qt.ItemIsEditable | Qt.ItemIsEnabled)
-                        if index + 1 in [ 5,8,11,15 ] or col_index==len(row)-1:
-                            item.setTextAlignment(Qt.AlignCenter)
+                        if self.current_region == 'информация_кз':
+                            if index + 1 in [5,8,11,15] or col_index==len(row)-1:
+                                item.setTextAlignment(Qt.AlignCenter)
                         item.setBackground(QColor(255, 255, 255))  
                     else:
                         item.setBackground(QColor(240, 240, 240))  
@@ -1088,7 +1140,7 @@ class AOSRApp(QMainWindow):
                     table.setItem(index, col_index, item)
             table.resizeColumnsToContents()
         except Exception as e:
-            QMessageBox.warning(self, 'Ошибка', f'Не удалось загрузить данные из Excel файла: {str(e)}')
+            print(e)
     
     def date_item_changed(self, row, column, date):
         self.row_modified[row] = True
@@ -1128,11 +1180,9 @@ class AOSRApp(QMainWindow):
         return data
 
     def get_agreement_data(self):
-    
         agreement_table = self.other_tables['Согласования']
         data = []
         for row in range(agreement_table.rowCount()):
-            
             row_data = tuple(agreement_table.item(row, col).text() if agreement_table.item(row, col) else '' for col in range(agreement_table.columnCount()))
             data.append(row_data)
         return data
@@ -1248,6 +1298,8 @@ class AOSRApp(QMainWindow):
     def save_table_data(self):
         name = self.windowTitle()[7:]
         table = self.other_tables[name]
+        if name == 'Информация':
+            name = self.current_region
         filename = f"docs/{name.lower().replace(' ', '_')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file, quoting=csv.QUOTE_ALL) 
