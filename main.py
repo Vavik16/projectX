@@ -12,6 +12,7 @@ from openpyxl import load_workbook, Workbook
 import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment
+import gc  # Garbage Collector
 
 class EditDateCommand(QUndoCommand):
     def __init__(self, date_edit, old_date, new_date):
@@ -544,14 +545,16 @@ class AOSRApp(QMainWindow):
             wb.save(xls_path)
             wb.close()
 
-            # Convert XLS to PDF using Excel
             xlApp = client.Dispatch("Excel.Application")
-            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
-            ws = books.Worksheets[0]
-            ws.Visible = 1
-            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
-            books.Close()
-            xlApp.Quit()
+            try:
+                            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
+                            ws = books.Worksheets[0]  # Accessing the first worksheet
+                            ws.Visible = 1
+                            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+            finally:
+                            books.Close()
+                            xlApp.Quit()  # Ensure the Excel application closes
+                            del xlApp
 
             QMessageBox.information(self, 'Успех', 'Реестр ИД успешно экспортирован в XLS и PDF.')
         except Exception as e:
@@ -609,12 +612,15 @@ class AOSRApp(QMainWindow):
 
             # Convert XLS to PDF using Excel
             xlApp = client.Dispatch("Excel.Application")
-            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
-            ws = books.Worksheets[0]
-            ws.Visible = 1
-            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
-            books.Close()
-            xlApp.Quit()
+            try:
+                            books = xlApp.Workbooks.Open(os.path.abspath(xls_path))
+                            ws = books.Worksheets[0]  # Accessing the first worksheet
+                            ws.Visible = 1
+                            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+            finally:
+                            books.Close()
+                            xlApp.Quit()  # Ensure the Excel application closes
+                            del xlApp
 
             QMessageBox.information(self, 'Успех', 'ВОР успешно экспортирован в XLS и PDF.')
         except Exception as e:
@@ -925,16 +931,21 @@ class AOSRApp(QMainWindow):
                         wb.close()
                         
                         xlApp = client.Dispatch("Excel.Application")
-                        books = xlApp.Workbooks.Open(os.path.abspath(xls_filename))
-                        ws = books.Worksheets[0]
-                        ws.Visible = 1
-                        ws.ExportAsFixedFormat(0, os.path.abspath(pdf_filename))
-                        books.Close()
+                        try:
+                            books = xlApp.Workbooks.Open(os.path.abspath(xls_filename))
+                            ws = books.Worksheets[0]  # Accessing the first worksheet
+                            ws.Visible = 1
+                            ws.ExportAsFixedFormat(0, os.path.abspath(pdf_filename))
+                        finally:
+                            books.Close()
+                            xlApp.Quit()  # Ensure the Excel application closes
+                            del xlApp
+                        gc.collect()
             
             self.reload_reg()
 
             QMessageBox.information(self, 'Успешно', f'Акты сформированы')
-            
+
         except Exception as e:
            QMessageBox.warning(self, 'Ошибка', f'Не удалось сформировать акт {e}')
             
